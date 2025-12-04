@@ -9,16 +9,16 @@ import {
   adminUpdateOrderStatus,
   adminDeleteOrder,
 } from "../controllers/orderController.js";
-import { requireUserAuth, requireAdminAuth } from "../middleware/auth.js";
+import { requireAdminAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// User order routes
-router.post("/checkout", requireUserAuth, checkoutFromCart);
-router.get("/my", requireUserAuth, getMyOrders);
-router.get("/my/:id", requireUserAuth, getMyOrderById);
+// ✅ User order routes (id-based)
+router.post("/checkout", checkoutFromCart); // body: { userId, ... }
+router.get("/my", getMyOrders);             // /api/orders/my?userId=...
+router.get("/my/:id", getMyOrderById);      // /api/orders/my/:id?userId=...
 
-// Admin order routes
+// ✅ Admin order routes (admin token-based)
 router.get("/", requireAdminAuth, adminListOrders);
 router.get("/:id", requireAdminAuth, adminGetOrderById);
 router.patch("/:id/status", requireAdminAuth, adminUpdateOrderStatus);

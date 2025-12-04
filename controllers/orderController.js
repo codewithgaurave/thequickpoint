@@ -1,15 +1,27 @@
 // controllers/orderController.js
 import Cart from "../models/Cart.js";
-import Product from "../models/Product.js";
 import Order from "../models/Order.js";
 
+// Helper: get userId from req for user-order endpoints
+const getUserIdFromReq = (req) => {
+  const id =
+    req.body.userId ||
+    req.query.userId ||
+    req.params.userId ||
+    "";
+  return typeof id === "string" ? id.trim() : id;
+};
+
 // --------------------------------------
-// POST /api/orders/checkout  (user)
-// Body: shipping + location + paymentMethod (all optional)
+// POST /api/orders/checkout
+// body: { userId, ...shippingFields }
 // --------------------------------------
 export const checkoutFromCart = async (req, res) => {
   try {
-    const userId = req.user.sub;
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required." });
+    }
 
     const cart = await Cart.findOne({
       user: userId,
@@ -103,9 +115,18 @@ export const checkoutFromCart = async (req, res) => {
         pincode: pincode || "",
         country: country || "India",
         location: {
-          latitude: latitude !== undefined ? Number(latitude) : undefined,
-          longitude: longitude !== undefined ? Number(longitude) : undefined,
-          accuracy: accuracy !== undefined ? Number(accuracy) : undefined,
+          latitude:
+            latitude !== undefined && latitude !== null
+              ? Number(latitude)
+              : undefined,
+          longitude:
+            longitude !== undefined && longitude !== null
+              ? Number(longitude)
+              : undefined,
+          accuracy:
+            accuracy !== undefined && accuracy !== null
+              ? Number(accuracy)
+              : undefined,
         },
       },
       notes: notes || "",
@@ -131,11 +152,16 @@ export const checkoutFromCart = async (req, res) => {
 };
 
 // --------------------------------------
-// GET /api/orders/my  (user) - list my orders
+// GET /api/orders/my?userId=...
 // --------------------------------------
 export const getMyOrders = async (req, res) => {
   try {
-    const userId = req.user.sub;
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ message: "userId is required (query param)." });
+    }
 
     const orders = await Order.find({
       user: userId,
@@ -153,12 +179,18 @@ export const getMyOrders = async (req, res) => {
 };
 
 // --------------------------------------
-// GET /api/orders/my/:id  (user) - single order
+// GET /api/orders/my/:id?userId=...
 // --------------------------------------
 export const getMyOrderById = async (req, res) => {
   try {
-    const userId = req.user.sub;
+    const userId = getUserIdFromReq(req);
     const { id } = req.params;
+
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ message: "userId is required (query param)." });
+    }
 
     const order = await Order.findOne({
       _id: id,
@@ -180,7 +212,7 @@ export const getMyOrderById = async (req, res) => {
 };
 
 // --------------------------------------
-// ADMIN: GET /api/orders  (list all)
+// ADMIN: GET /api/orders  (adminToken)
 // --------------------------------------
 export const adminListOrders = async (_req, res) => {
   try {
@@ -256,7 +288,7 @@ export const adminUpdateOrderStatus = async (req, res) => {
 };
 
 // --------------------------------------
-// ADMIN: DELETE /api/orders/:id  (soft delete)
+// ADMIN: DELETE /api/orders/:id  (soft)
 // --------------------------------------
 export const adminDeleteOrder = async (req, res) => {
   try {

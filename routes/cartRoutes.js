@@ -7,15 +7,14 @@ import {
   removeCartItem,
   clearCart,
 } from "../controllers/cartController.js";
-import { requireUserAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// All cart routes are user-protected
-router.get("/", requireUserAuth, getMyCart);
-router.post("/add", requireUserAuth, addToCart);
-router.patch("/update", requireUserAuth, updateCartItem);
-router.delete("/item/:productId", requireUserAuth, removeCartItem);
-router.delete("/clear", requireUserAuth, clearCart);
+// ✅ User id-based (no token)
+router.get("/", getMyCart);                     // /api/cart?userId=...
+router.post("/add", addToCart);                 // body: { userId, productId, quantity }
+router.patch("/update", updateCartItem);        // body: { userId, productId, quantity }
+router.delete("/item/:productId", removeCartItem); // /api/cart/item/:productId?userId=...
+router.delete("/clear", clearCart);             // /api/cart/clear?userId=...
 
 export default router;

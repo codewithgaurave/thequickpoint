@@ -2,7 +2,17 @@
 import Cart from "../models/Cart.js";
 import Product from "../models/Product.js";
 
-// Helper to get or create cart for user
+// Helper: get userId from request (body/query/params)
+const getUserIdFromReq = (req) => {
+  const id =
+    req.body.userId ||
+    req.query.userId ||
+    req.params.userId ||
+    "";
+  return typeof id === "string" ? id.trim() : id;
+};
+
+// Helper to get or create cart for a userId
 const getOrCreateCart = async (userId) => {
   let cart = await Cart.findOne({ user: userId, isDeleted: false });
   if (!cart) {
@@ -12,17 +22,25 @@ const getOrCreateCart = async (userId) => {
 };
 
 // --------------------------------------
-// GET /api/cart  (user) - get my cart
+// GET /api/cart?userId=...  - get cart by userId
 // --------------------------------------
 export const getMyCart = async (req, res) => {
   try {
-    const userId = req.user.sub;
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ message: "userId is required (query param)." });
+    }
 
     const cart = await Cart.findOne({
       user: userId,
       isDeleted: false,
     })
-      .populate("items.product", "name images price offerPrice stockQuantity unit isActive")
+      .populate(
+        "items.product",
+        "name images price offerPrice stockQuantity unit isActive"
+      )
       .lean();
 
     if (!cart) {
@@ -42,15 +60,18 @@ export const getMyCart = async (req, res) => {
 };
 
 // --------------------------------------
-// POST /api/cart/add  (user) - add or increase
-// body: { productId, quantity }
+// POST /api/cart/add
+// body: { userId, productId, quantity }
 // --------------------------------------
 export const addToCart = async (req, res) => {
   try {
-    const userId = req.user.sub;
+    const userId = getUserIdFromReq(req);
     const { productId } = req.body;
     let { quantity } = req.body;
 
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required." });
+    }
     if (!productId) {
       return res
         .status(400)
@@ -75,7 +96,9 @@ export const addToCart = async (req, res) => {
     }).lean();
 
     if (!product) {
-      return res.status(404).json({ message: "Product not found or inactive." });
+      return res
+        .status(404)
+        .json({ message: "Product not found or inactive." });
     }
 
     let cart = await getOrCreateCart(userId);
@@ -92,7 +115,10 @@ export const addToCart = async (req, res) => {
         product: productId,
         quantity,
         priceAtAdd: product.price,
-        offerPriceAtAdd: product.offerPrice ?? product.price,
+        offerPriceAtAdd:
+          product.offerPrice !== undefined && product.offerPrice !== null
+            ? product.offerPrice
+            : product.price,
         unit: product.unit || "piece",
       });
     }
@@ -100,7 +126,10 @@ export const addToCart = async (req, res) => {
     await cart.save();
 
     cart = await Cart.findById(cart._id)
-      .populate("items.product", "name images price offerPrice stockQuantity unit isActive")
+      .populate(
+        "items.product",
+        "name images price offerPrice stockQuantity unit isActive"
+      )
       .lean();
 
     return res.json({
@@ -114,16 +143,19 @@ export const addToCart = async (req, res) => {
 };
 
 // --------------------------------------
-// PATCH /api/cart/update  (user) - set quantity
-// body: { productId, quantity }
-// quantity <=0 => remove
+// PATCH /api/cart/update
+// body: { userId, productId, quantity }
+// quantity <= 0 => remove
 // --------------------------------------
 export const updateCartItem = async (req, res) => {
   try {
-    const userId = req.user.sub;
+    const userId = getUserIdFromReq(req);
     const { productId } = req.body;
     let { quantity } = req.body;
 
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required." });
+    }
     if (!productId) {
       return res
         .status(400)
@@ -147,11 +179,12 @@ export const updateCartItem = async (req, res) => {
     );
 
     if (idx === -1) {
-      return res.status(404).json({ message: "Product not found in cart." });
+      return res
+        .status(404)
+        .json({ message: "Product not found in cart." });
     }
 
     if (quantity <= 0) {
-      // remove item
       cart.items.splice(idx, 1);
     } else {
       cart.items[idx].quantity = quantity;
@@ -160,7 +193,10 @@ export const updateCartItem = async (req, res) => {
     await cart.save();
 
     const populatedCart = await Cart.findById(cart._id)
-      .populate("items.product", "name images price offerPrice stockQuantity unit isActive")
+      .populate(
+        "items.product",
+        "name images price offerPrice stockQuantity unit isActive"
+      )
       .lean();
 
     return res.json({
@@ -177,12 +213,18 @@ export const updateCartItem = async (req, res) => {
 };
 
 // --------------------------------------
-// DELETE /api/cart/item/:productId  (user) - remove
+// DELETE /api/cart/item/:productId?userId=...
 // --------------------------------------
 export const removeCartItem = async (req, res) => {
   try {
-    const userId = req.user.sub;
+    const userId = getUserIdFromReq(req);
     const { productId } = req.params;
+
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ message: "userId is required (query param or body)." });
+    }
 
     const cart = await Cart.findOne({ user: userId, isDeleted: false });
     if (!cart) {
@@ -203,7 +245,10 @@ export const removeCartItem = async (req, res) => {
     await cart.save();
 
     const populatedCart = await Cart.findById(cart._id)
-      .populate("items.product", "name images price offerPrice stockQuantity unit isActive")
+      .populate(
+        "items.product",
+        "name images price offerPrice stockQuantity unit isActive"
+      )
       .lean();
 
     return res.json({
@@ -217,11 +262,16 @@ export const removeCartItem = async (req, res) => {
 };
 
 // --------------------------------------
-// DELETE /api/cart/clear  (user) - clear entire cart
+// DELETE /api/cart/clear?userId=...
 // --------------------------------------
 export const clearCart = async (req, res) => {
   try {
-    const userId = req.user.sub;
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ message: "userId is required (query param or body)." });
+    }
 
     const cart = await Cart.findOne({ user: userId, isDeleted: false });
     if (!cart) {
