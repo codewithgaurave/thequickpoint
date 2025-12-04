@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d"; // users ke liye thoda long
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d"; // users ke liye long
 const FIXED_OTP = "123456";
 
 if (!JWT_SECRET) {
@@ -24,9 +24,9 @@ const signUserJwt = (user) =>
   );
 
 // ------------------------------
-// POST /api/users/request-otp
+// REGISTER: POST /api/users/request-otp/register
 // ------------------------------
-export const requestOtp = async (req, res) => {
+export const requestRegisterOtp = async (req, res) => {
   try {
     const mobile = (req.body.mobile || req.body.mobileNumber || "").trim();
 
@@ -34,20 +34,66 @@ export const requestOtp = async (req, res) => {
       return res.status(400).json({ message: "Mobile is required." });
     }
 
-    // In real app you would generate random OTP & send SMS.
-    // Abhi ke liye fixed OTP:
+    const existing = await User.findOne({ mobile }).lean();
+
+    if (existing && !existing.isDeleted) {
+      return res.status(409).json({
+        message: "This mobile is already registered. Please login instead.",
+        alreadyRegistered: true,
+      });
+    }
+
+    // real app: random OTP + SMS
     return res.json({
-      message: "OTP generated successfully (test mode).",
-      otp: FIXED_OTP, // dev/testing ke liye
+      message: "OTP sent for registration (test mode).",
+      otp: FIXED_OTP, // dev/testing
+      alreadyRegistered: false,
     });
   } catch (err) {
-    console.error("requestOtp error:", err);
+    console.error("requestRegisterOtp error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
 
 // ------------------------------
-// POST /api/users/verify-otp
+// LOGIN: POST /api/users/request-otp/login
+// ------------------------------
+export const requestLoginOtp = async (req, res) => {
+  try {
+    const mobile = (req.body.mobile || req.body.mobileNumber || "").trim();
+
+    if (!mobile) {
+      return res.status(400).json({ message: "Mobile is required." });
+    }
+
+    const user = await User.findOne({ mobile }).lean();
+
+    if (!user || user.isDeleted) {
+      return res.status(404).json({
+        message: "User not found. Please register first.",
+        needRegistration: true,
+      });
+    }
+
+    if (user.isBlocked) {
+      return res.status(403).json({
+        message: "User is blocked by admin. Login not allowed.",
+      });
+    }
+
+    return res.json({
+      message: "OTP sent for login (test mode).",
+      otp: FIXED_OTP,
+      needRegistration: false,
+    });
+  } catch (err) {
+    console.error("requestLoginOtp error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ------------------------------
+// POST /api/users/verify-otp  (common for login + register)
 // ------------------------------
 export const verifyOtp = async (req, res) => {
   try {
@@ -66,7 +112,9 @@ export const verifyOtp = async (req, res) => {
 
     let user = await User.findOne({ mobile });
 
-    // if user not exist -> create minimal user
+    const isNewUser = !user;
+
+    // if user not exist -> create minimal user (registration)
     if (!user) {
       user = await User.create({ mobile });
     }
@@ -86,7 +134,10 @@ export const verifyOtp = async (req, res) => {
     const token = signUserJwt(user);
 
     return res.json({
-      message: "OTP verified. Login successful.",
+      message: isNewUser
+        ? "OTP verified. User registered & logged in."
+        : "OTP verified. Login successful.",
+      isNewUser,
       user: {
         id: user._id,
         mobile: user.mobile,
@@ -184,7 +235,6 @@ export const updateMyProfile = async (req, res) => {
     }
 
     if (req.file && req.file.path) {
-      // multer-storage-cloudinary gives direct URL
       update.profileImageUrl = req.file.path;
     }
 
@@ -382,7 +432,6 @@ export const adminBlockUser = async (req, res) => {
 // DELETE /api/users/:id  (admin)
 export const adminDeleteUser = async (req, res) => {
   try {
-    // Soft delete bhi kar sakte ho; yaha direct delete:
     const user = await User.findByIdAndDelete(req.params.id).lean();
     if (!user) {
       return res.status(404).json({ message: "User not found" });

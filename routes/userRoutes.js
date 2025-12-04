@@ -1,7 +1,8 @@
 // routes/userRoutes.js
 import express from "express";
 import {
-  requestOtp,
+  requestRegisterOtp,
+  requestLoginOtp,
   verifyOtp,
   getMyProfile,
   updateMyProfile,
@@ -18,17 +19,13 @@ import { uploadUserFields } from "../config/cloudinary.js";
 const router = express.Router();
 
 // Public (OTP flow)
-router.post("/request-otp", requestOtp);
+router.post("/request-otp/register", requestRegisterOtp); // Register screen
+router.post("/request-otp/login", requestLoginOtp);       // Login screen
 router.post("/verify-otp", verifyOtp);
 
 // User protected
 router.get("/me", requireUserAuth, getMyProfile);
-router.patch(
-  "/me",
-  requireUserAuth,
-  uploadUserFields,
-  updateMyProfile
-);
+router.patch("/me", requireUserAuth, uploadUserFields, updateMyProfile);
 router.post("/logout-all", requireUserAuth, logoutAllUser);
 
 // Admin operations on users
