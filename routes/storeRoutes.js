@@ -1,4 +1,3 @@
-// routes/storeRoutes.js
 import express from "express";
 import {
   createStore,
@@ -13,7 +12,6 @@ import {
 import { requireAdminAuth } from "../middleware/auth.js";
 import { uploadStoreImage } from "../config/cloudinary.js";
 
-// NEW: product store controllers and upload helper
 import {
   getProductsByStore,
   createProductForStore,
@@ -36,40 +34,35 @@ router.patch("/:id/status", requireAdminAuth, updateStoreStatus);
 router.delete("/:id", requireAdminAuth, deleteStore);
 
 // Admin: store-scoped product management
-// Create product for a store
 router.post(
   "/:storeId/products",
   requireAdminAuth,
-  uploadProductImages, // productImages[] max 3
+  uploadProductImages,
   createProductForStore
 );
 
-// Update product for a store
 router.patch(
   "/:storeId/products/:productId",
   requireAdminAuth,
-  uploadProductImages, // optional new images
+  uploadProductImages,
   updateProductForStore
 );
 
-// Delete product for a store (soft)
 router.delete("/:storeId/products/:productId", requireAdminAuth, deleteProductForStore);
 
-// Assign existing product to store
 router.patch(
   "/:storeId/products/:productId/assign",
   requireAdminAuth,
   assignProductToStore
 );
 
-// Unassign product from store
 router.patch(
   "/:storeId/products/:productId/unassign",
   requireAdminAuth,
   unassignProductFromStore
 );
 
-// Public: get products by storeId (active only) - put BEFORE the /:id route
+// Public: get products by storeId (active only)
 router.get("/:storeId/products", getProductsByStore);
 
 // Public routes

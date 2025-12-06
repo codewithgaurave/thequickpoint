@@ -1,4 +1,3 @@
-// models/Cart.js
 import mongoose from "mongoose";
 
 const { Schema } = mongoose;
@@ -9,6 +8,11 @@ const cartItemSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "Product",
       required: true,
+    },
+    store: {
+      type: Schema.Types.ObjectId,
+      ref: "Store",
+      default: null,
     },
     quantity: {
       type: Number,
@@ -37,7 +41,7 @@ const cartSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "users",
       required: true,
-      unique: true, // 1 user = 1 active cart
+      unique: true,
       index: true,
     },
     items: {
@@ -58,7 +62,6 @@ const cartSchema = new Schema(
   { timestamps: true }
 );
 
-// IST timestamps
 cartSchema.pre("save", function (next) {
   const istTime = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",

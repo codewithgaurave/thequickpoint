@@ -19,6 +19,7 @@ import storeRoutes from "./routes/storeRoutes.js";
 import storeManagerRoutes from "./routes/storeManagerRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
+import storeOwnerRoutes from "./routes/storeOwnerRoutes.js";
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use("/api/sliders", sliderRoutes);
 app.use("/api/offer-images", offerImageRoutes);
 app.use("/api/offer-texts", offerTextRoutes);
 app.use("/api/categories", categoryRoutes);
+app.use("/api/store-owner", storeOwnerRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/stores", storeRoutes);
 app.use("/api/store-managers", storeManagerRoutes);

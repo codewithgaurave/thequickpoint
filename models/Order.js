@@ -1,4 +1,3 @@
-// models/Order.js
 import mongoose from "mongoose";
 
 const { Schema } = mongoose;
@@ -14,8 +13,8 @@ const orderItemSchema = new Schema(
     images: { type: [String], default: [] },
     unit: { type: String, default: "piece" },
     quantity: { type: Number, required: true, min: 1 },
-    price: { type: Number, required: true, min: 0 }, // original
-    offerPrice: { type: Number, min: 0 }, // actual selling price
+    price: { type: Number, required: true, min: 0 },
+    offerPrice: { type: Number, min: 0 },
     percentageOff: { type: Number, min: 0, max: 100, default: 0 },
     lineTotal: { type: Number, required: true, min: 0 },
   },
@@ -30,13 +29,20 @@ const orderSchema = new Schema(
       required: true,
       index: true,
     },
+    
+    // NEW: Store reference for store-specific orders
+    store: {
+      type: Schema.Types.ObjectId,
+      ref: "Store",
+      default: null,
+    },
 
     items: {
       type: [orderItemSchema],
       default: [],
     },
 
-    subtotal: { type: Number, default: 0 }, // sum(price * qty)
+    subtotal: { type: Number, default: 0 },
     totalDiscount: { type: Number, default: 0 },
     grandTotal: { type: Number, default: 0 },
 
@@ -85,7 +91,6 @@ const orderSchema = new Schema(
   { timestamps: true }
 );
 
-// IST timestamps
 orderSchema.pre("save", function (next) {
   const istTime = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
