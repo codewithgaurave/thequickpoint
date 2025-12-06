@@ -1,6 +1,7 @@
 // controllers/productController.js
 import Product from "../models/Product.js";
 import Category from "../models/Category.js";
+import Store from "../models/Store.js";
 
 // helper to compute discount %
 const computePercentageOff = (price, offerPrice) => {
@@ -424,6 +425,355 @@ export const deleteProduct = async (req, res) => {
     });
   } catch (err) {
     console.error("deleteProduct error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+//
+// ------------------- NEW: Store-scoped product handlers -------------------
+//
+
+// ---------- Get products by store (public) ----------
+// GET /api/stores/:storeId/products
+export const getProductsByStore = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const { categoryId } = req.query;
+
+    if (!storeId) {
+      return res.status(400).json({ message: "storeId is required." });
+    }
+
+    // ensure store exists and not deleted and active (optional)
+    const store = await Store.findOne({
+      _id: storeId,
+      isDeleted: false,
+      isActive: true,
+    }).lean();
+
+    if (!store) {
+      return res.status(404).json({ message: "Store not found or inactive." });
+    }
+
+    const filter = {
+      isActive: true,
+      isDeleted: false,
+      store: storeId,
+    };
+
+    if (categoryId) filter.category = categoryId;
+
+    const products = await Product.find(filter)
+      .populate("category", "title imageUrl isActive")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json({ store: { id: store._id, storeName: store.storeName }, products });
+  } catch (err) {
+    console.error("getProductsByStore error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ---------- Create product for a store (admin) ----------
+// POST /api/stores/:storeId/products
+export const createProductForStore = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const {
+      name,
+      categoryId,
+      price,
+      offerPrice,
+      percentageOff,
+      stockQuantity,
+      unit,
+      description,
+      isActive,
+    } = req.body;
+
+    if (!storeId) {
+      return res.status(400).json({ message: "storeId is required in URL." });
+    }
+
+    const store = await Store.findOne({ _id: storeId, isDeleted: false }).lean();
+    if (!store) {
+      return res.status(404).json({ message: "Store not found." });
+    }
+
+    // reuse your createProduct validations:
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: "Product name is required." });
+    }
+    if (!categoryId) {
+      return res.status(400).json({ message: "categoryId is required." });
+    }
+    if (!price) {
+      return res.status(400).json({ message: "price is required." });
+    }
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: "At least one product image is required." });
+    }
+    if (req.files.length > 3) {
+      return res.status(400).json({ message: "Maximum 3 images allowed per product." });
+    }
+
+    const category = await Category.findOne({ _id: categoryId, isDeleted: false }).lean();
+    if (!category) {
+      return res.status(400).json({ message: "Invalid categoryId." });
+    }
+
+    const images = req.files.map((file) => file.path);
+    const priceNum = Number(price);
+    const offerPriceNum =
+      offerPrice !== undefined && offerPrice !== null && offerPrice !== "" ? Number(offerPrice) : undefined;
+    if (isNaN(priceNum) || priceNum < 0) {
+      return res.status(400).json({ message: "Invalid price value." });
+    }
+    if (offerPriceNum !== undefined && (isNaN(offerPriceNum) || offerPriceNum < 0)) {
+      return res.status(400).json({ message: "Invalid offerPrice value (if provided)." });
+    }
+
+    // compute percentageOff similar to createProduct
+    let finalPercentageOff = 0;
+    if (offerPriceNum !== undefined) {
+      finalPercentageOff = computePercentageOff(priceNum, offerPriceNum);
+    }
+    if (percentageOff !== undefined && percentageOff !== "") {
+      const p = Number(percentageOff);
+      if (!isNaN(p) && p >= 0 && p <= 100) finalPercentageOff = p;
+    }
+
+    const stock = stockQuantity !== undefined ? Number(stockQuantity) : 0;
+    if (isNaN(stock) || stock < 0) {
+      return res.status(400).json({ message: "Invalid stockQuantity value." });
+    }
+
+    const product = await Product.create({
+      name: name.trim(),
+      category: categoryId,
+      images,
+      price: priceNum,
+      offerPrice: offerPriceNum,
+      percentageOff: finalPercentageOff,
+      stockQuantity: stock,
+      unit: unit || "piece",
+      description: description ? description.trim() : "",
+      isActive: isActive === undefined ? true : typeof isActive === "string" ? isActive === "true" : !!isActive,
+      store: storeId,
+    });
+
+    return res.status(201).json({
+      message: "Product created and assigned to store successfully",
+      product,
+    });
+  } catch (err) {
+    console.error("createProductForStore error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ---------- Assign existing product to a store (admin) ----------
+// PATCH /api/stores/:storeId/products/:productId/assign
+export const assignProductToStore = async (req, res) => {
+  try {
+    const { storeId, productId } = req.params;
+
+    if (!storeId || !productId) {
+      return res.status(400).json({ message: "storeId and productId are required in URL." });
+    }
+
+    const store = await Store.findOne({ _id: storeId, isDeleted: false }).lean();
+    if (!store) {
+      return res.status(404).json({ message: "Store not found." });
+    }
+
+    const product = await Product.findOneAndUpdate(
+      { _id: productId, isDeleted: false },
+      { store: storeId },
+      { new: true }
+    )
+      .populate("category", "title imageUrl isActive")
+      .lean();
+
+    if (!product) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+
+    return res.json({ message: "Product assigned to store successfully", product });
+  } catch (err) {
+    console.error("assignProductToStore error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ---------- Unassign product from store (admin) ----------
+// PATCH /api/stores/:storeId/products/:productId/unassign
+export const unassignProductFromStore = async (req, res) => {
+  try {
+    const { storeId, productId } = req.params;
+    if (!storeId || !productId) {
+      return res.status(400).json({ message: "storeId and productId are required in URL." });
+    }
+
+    // ensure product currently belongs to this store (optional)
+    const product = await Product.findOne({ _id: productId, isDeleted: false }).lean();
+    if (!product) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+
+    if (!product.store || String(product.store) !== String(storeId)) {
+      return res.status(400).json({ message: "Product is not assigned to this store." });
+    }
+
+    const updated = await Product.findOneAndUpdate(
+      { _id: productId, isDeleted: false },
+      { store: null },
+      { new: true }
+    )
+      .populate("category", "title imageUrl isActive")
+      .lean();
+
+    return res.json({ message: "Product unassigned from store successfully", product: updated });
+  } catch (err) {
+    console.error("unassignProductFromStore error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ---------- Update product but ensure it belongs to store (admin) ----------
+// PATCH /api/stores/:storeId/products/:productId
+export const updateProductForStore = async (req, res) => {
+  try {
+    const { storeId, productId } = req.params;
+
+    if (!storeId || !productId) {
+      return res.status(400).json({ message: "storeId and productId are required in URL." });
+    }
+
+    // ensure store exists
+    const store = await Store.findOne({ _id: storeId, isDeleted: false }).lean();
+    if (!store) {
+      return res.status(404).json({ message: "Store not found." });
+    }
+
+    // ensure product belongs to store
+    const existing = await Product.findOne({ _id: productId, isDeleted: false }).lean();
+    if (!existing) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+    if (!existing.store || String(existing.store) !== String(storeId)) {
+      return res.status(403).json({ message: "Product does not belong to this store." });
+    }
+
+    // Reuse update logic from updateProduct - but here we will only update fields provided.
+    const {
+      name,
+      categoryId,
+      price,
+      offerPrice,
+      percentageOff,
+      stockQuantity,
+      unit,
+      description,
+      isActive,
+    } = req.body;
+
+    const update = {};
+
+    if (name !== undefined) {
+      if (!name.trim()) return res.status(400).json({ message: "Product name cannot be empty." });
+      update.name = name.trim();
+    }
+
+    if (categoryId !== undefined) {
+      const category = await Category.findOne({ _id: categoryId, isDeleted: false }).lean();
+      if (!category) return res.status(400).json({ message: "Invalid categoryId." });
+      update.category = categoryId;
+    }
+
+    if (price !== undefined) {
+      const priceNum = Number(price);
+      if (isNaN(priceNum) || priceNum < 0) return res.status(400).json({ message: "Invalid price value." });
+      update.price = priceNum;
+    }
+
+    if (offerPrice !== undefined) {
+      const offerPriceNum = Number(offerPrice);
+      if (isNaN(offerPriceNum) || offerPriceNum < 0)
+        return res.status(400).json({ message: "Invalid offerPrice value." });
+      update.offerPrice = offerPriceNum;
+    }
+
+    if (stockQuantity !== undefined) {
+      const stock = Number(stockQuantity);
+      if (isNaN(stock) || stock < 0) return res.status(400).json({ message: "Invalid stockQuantity value." });
+      update.stockQuantity = stock;
+    }
+
+    if (unit !== undefined) update.unit = unit;
+    if (description !== undefined) update.description = description.trim();
+    if (isActive !== undefined)
+      update.isActive = typeof isActive === "string" ? isActive === "true" : !!isActive;
+
+    // handle images
+    if (req.files && req.files.length > 0) {
+      if (req.files.length > 3) {
+        return res.status(400).json({ message: "Maximum 3 images allowed per product." });
+      }
+      update.images = req.files.map((f) => f.path);
+    }
+
+    // recompute percentageOff if price/offerPrice/percentageOff passed
+    if (update.price !== undefined || update.offerPrice !== undefined || percentageOff !== undefined) {
+      const prev = existing;
+      const finalPrice = update.price !== undefined ? update.price : prev.price;
+      const finalOfferPrice = update.offerPrice !== undefined ? update.offerPrice : prev.offerPrice;
+      let finalPercentageOff = prev.percentageOff !== undefined ? prev.percentageOff : 0;
+      if (finalOfferPrice !== undefined) finalPercentageOff = computePercentageOff(finalPrice, finalOfferPrice);
+      if (percentageOff !== undefined && percentageOff !== "") {
+        const p = Number(percentageOff);
+        if (!isNaN(p) && p >= 0 && p <= 100) finalPercentageOff = p;
+      }
+      update.percentageOff = finalPercentageOff;
+    }
+
+    const product = await Product.findOneAndUpdate({ _id: productId, isDeleted: false }, update, {
+      new: true,
+      runValidators: true,
+    })
+      .populate("category", "title imageUrl isActive")
+      .lean();
+
+    return res.json({ message: "Product updated successfully", product });
+  } catch (err) {
+    console.error("updateProductForStore error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ---------- Delete product (soft) but ensure it belongs to store (admin) ----------
+// DELETE /api/stores/:storeId/products/:productId
+export const deleteProductForStore = async (req, res) => {
+  try {
+    const { storeId, productId } = req.params;
+    if (!storeId || !productId) {
+      return res.status(400).json({ message: "storeId and productId are required in URL." });
+    }
+
+    const existing = await Product.findOne({ _id: productId, isDeleted: false }).lean();
+    if (!existing) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+    if (!existing.store || String(existing.store) !== String(storeId)) {
+      return res.status(403).json({ message: "Product does not belong to this store." });
+    }
+
+    await Product.findOneAndUpdate({ _id: productId }, { isDeleted: true, isActive: false }, { new: true }).lean();
+
+    return res.json({ message: "Product deleted (soft) successfully" });
+  } catch (err) {
+    console.error("deleteProductForStore error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };

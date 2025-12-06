@@ -10,6 +10,15 @@ const productSchema = new Schema(
       required: true,
       trim: true,
     },
+
+    // NEW: store reference (optional) - indexed for faster store queries
+    store: {
+      type: Schema.Types.ObjectId,
+      ref: "Store",
+      default: null,
+      index: true,
+    },
+
     category: {
       type: Schema.Types.ObjectId,
       ref: "Category",

@@ -293,3 +293,78 @@ export const clearCart = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
+
+// controllers/cartController.js
+// (file ke top mein jo helpers/imports already hain unko use kiya jayega)
+
+export const decreaseCartItem = async (req, res) => {
+  try {
+    const userId = getUserIdFromReq(req);
+    const { productId } = req.body;
+    let { decrementBy } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required." });
+    }
+    if (!productId) {
+      return res.status(400).json({ message: "productId is required." });
+    }
+
+    decrementBy =
+      decrementBy === undefined || decrementBy === null || decrementBy === ""
+        ? 1
+        : Number(decrementBy);
+
+    if (isNaN(decrementBy) || decrementBy <= 0) {
+      return res
+        .status(400)
+        .json({ message: "decrementBy must be a positive number." });
+    }
+
+    const cart = await Cart.findOne({ user: userId, isDeleted: false });
+    if (!cart) {
+      return res.status(404).json({ message: "Cart not found." });
+    }
+
+    const idx = cart.items.findIndex(
+      (it) => String(it.product) === String(productId)
+    );
+
+    if (idx === -1) {
+      return res
+        .status(404)
+        .json({ message: "Product not found in cart." });
+    }
+
+    // Reduce quantity
+    cart.items[idx].quantity -= decrementBy;
+
+    // If new quantity <= 0 remove the item
+    if (cart.items[idx].quantity <= 0) {
+      cart.items.splice(idx, 1);
+    }
+
+    await cart.save();
+
+    const populatedCart = await Cart.findById(cart._id)
+      .populate(
+        "items.product",
+        "name images price offerPrice stockQuantity unit isActive"
+      )
+      .lean();
+
+    return res.json({
+      message:
+        idx === -1
+          ? "Product not found in cart." // unreachable, kept for safety
+          : cart.items.length === 0 || (cart.items.findIndex((it) => String(it.product) === String(productId)) === -1)
+          ? "Item removed from cart."
+          : "Cart item quantity decreased successfully.",
+      cart: populatedCart,
+    });
+  } catch (err) {
+    console.error("decreaseCartItem error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
