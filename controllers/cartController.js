@@ -5,10 +5,11 @@ import Product from "../models/Product.js";
 // Helper: get userId from request (body/query/params)
 const getUserIdFromReq = (req) => {
   const id =
-    req.body.userId ||
-    req.query.userId ||
-    req.params.userId ||
+    req?.body?.userId ||
+    req?.query?.userId ||
+    req?.params?.userId ||
     "";
+
   return typeof id === "string" ? id.trim() : id;
 };
 
