@@ -35,7 +35,7 @@ const cartSchema = new Schema(
   {
     user: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: "users",
       required: true,
       unique: true, // 1 user = 1 active cart
       index: true,
