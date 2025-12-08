@@ -19,6 +19,7 @@ import storeRoutes from "./routes/storeRoutes.js";
 import storeManagerRoutes from "./routes/storeManagerRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
 import storeOwnerRoutes from "./routes/storeOwnerRoutes.js";
 
 const app = express();
@@ -56,6 +57,7 @@ app.use("/api/stores", storeRoutes);
 app.use("/api/store-managers", storeManagerRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // Connect DB
 await connectDB();
