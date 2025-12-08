@@ -158,8 +158,8 @@ export const getCartByStore = async (req, res) => {
 export const addToCart = async (req, res) => {
   try {
     const userId = getUserIdFromReq(req);
-    const { productId, storeId } = req.body;
-    let { quantity } = req.body;
+    const { productId } = req.body;
+    let { quantity, storeId } = req.body;
 
     if (!userId) {
       return res.status(400).json({ message: "userId is required." });
@@ -168,11 +168,53 @@ export const addToCart = async (req, res) => {
       return res.status(400).json({ message: "productId is required." });
     }
 
-    // Validate store if provided
+    // ✅ Get product first without strict store filter
+    const product = await Product.findOne({
+      _id: productId,
+      isDeleted: false,
+      isActive: true
+    }).lean();
+
+    if (!product) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+
+    // ✅ Smart store handling logic
+    let finalStoreId = storeId || null;
+    
+    if (product.store) {
+      // Product already assigned to a store
+      if (storeId) {
+        // If storeId provided, check if it matches
+        if (String(product.store) !== String(storeId)) {
+          return res.status(400).json({ 
+            message: "Product belongs to a different store.",
+            productStore: product.store,
+            requestedStore: storeId
+          });
+        }
+        // If matches, use the provided storeId
+        finalStoreId = storeId;
+      } else {
+        // No storeId provided, use product's store
+        finalStoreId = product.store;
+      }
+    } else {
+      // Global product (store = null)
+      if (storeId) {
+        return res.status(400).json({ 
+          message: "This is a global product, cannot assign to store."
+        });
+      }
+      // Global product without store
+      finalStoreId = null;
+    }
+
+    // ✅ Validate store if finalStoreId exists
     let store = null;
-    if (storeId) {
+    if (finalStoreId) {
       store = await Store.findOne({
-        _id: storeId,
+        _id: finalStoreId,
         isDeleted: false,
         isActive: true,
       }).lean();
@@ -180,30 +222,6 @@ export const addToCart = async (req, res) => {
       if (!store) {
         return res.status(404).json({ message: "Store not found or inactive." });
       }
-    }
-
-    // Get product with store validation
-    const productFilter = storeId 
-      ? { 
-          _id: productId, 
-          store: storeId, 
-          isDeleted: false, 
-          isActive: true 
-        }
-      : { 
-          _id: productId, 
-          store: null, 
-          isDeleted: false, 
-          isActive: true 
-        };
-    
-    const product = await Product.findOne(productFilter).lean();
-
-    if (!product) {
-      const message = storeId 
-        ? "Product not found in this store."
-        : "Global product not found.";
-      return res.status(404).json({ message });
     }
 
     quantity = quantity === undefined || quantity === null || quantity === ""
@@ -216,10 +234,10 @@ export const addToCart = async (req, res) => {
 
     let cart = await getOrCreateCart(userId);
 
-    // Check if item exists with same product and store
+    // ✅ Check if item exists with same product and store
     const existingItemIndex = cart.items.findIndex(
       (it) => String(it.product) === String(productId) && 
-             String(it.store || null) === String(storeId || null)
+             String(it.store || null) === String(finalStoreId || null)
     );
 
     if (existingItemIndex > -1) {
@@ -229,7 +247,7 @@ export const addToCart = async (req, res) => {
       // Add new item with store info
       cart.items.push({
         product: productId,
-        store: storeId || null,
+        store: finalStoreId || null,
         quantity,
         priceAtAdd: product.price,
         offerPriceAtAdd:
