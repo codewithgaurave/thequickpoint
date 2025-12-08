@@ -5,6 +5,9 @@ import Product from "../models/Product.js";
 import Order from "../models/Order.js";
 import Category from "../models/Category.js";
 
+// Global mongoose setting to handle populate errors
+mongoose.set('strictPopulate', false);
+
 // --------------------------------------
 // GET /api/dashboard/admin
 // Admin Dashboard - Complete Statistics
@@ -104,14 +107,22 @@ export const getAdminDashboard = async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(10)
         .populate("category", "title")
-        .populate("store", "storeName")
+        .populate({
+          path: "store",
+          select: "storeName",
+          strictPopulate: false // Fix for store population
+        })
         .select("name images price offerPrice stockQuantity unit isActive")
         .lean(),
       Order.find({ isDeleted: false })
         .sort({ createdAt: -1 })
         .limit(10)
         .populate("user", "mobile fullName")
-        .populate("store", "storeName")
+        .populate({
+          path: "store",
+          select: "storeName",
+          strictPopulate: false // Fix for store population
+        })
         .select("grandTotal status paymentStatus paymentMethod createdAtIST")
         .lean(),
 
@@ -186,7 +197,11 @@ export const getAdminDashboard = async (req, res) => {
         .sort({ stockQuantity: 1 })
         .limit(10)
         .populate("category", "title")
-        .populate("store", "storeName")
+        .populate({
+          path: "store",
+          select: "storeName",
+          strictPopulate: false // Fix for store population
+        })
         .select("name images price stockQuantity unit")
         .lean(),
 
@@ -244,37 +259,64 @@ export const getAdminDashboard = async (req, res) => {
     // Populate store names for store-wise orders
     const storeOrdersWithDetails = await Promise.all(
       storeWiseOrders.map(async (item) => {
-        const store = await Store.findById(item._id)
-          .select("storeName storeImageUrl managerName")
-          .lean();
-        return {
-          store: {
-            id: item._id,
-            storeName: store?.storeName || "Unknown Store",
-            storeImageUrl: store?.storeImageUrl,
-            managerName: store?.managerName,
-          },
-          orderCount: item.orderCount,
-          totalRevenue: item.totalRevenue,
-        };
+        try {
+          const store = await Store.findById(item._id)
+            .select("storeName storeImageUrl managerName")
+            .lean();
+          return {
+            store: {
+              id: item._id,
+              storeName: store?.storeName || "Unknown Store",
+              storeImageUrl: store?.storeImageUrl,
+              managerName: store?.managerName,
+            },
+            orderCount: item.orderCount,
+            totalRevenue: item.totalRevenue,
+          };
+        } catch (error) {
+          console.warn(`Store not found for ID: ${item._id}`);
+          return {
+            store: {
+              id: item._id,
+              storeName: "Store Not Found",
+              storeImageUrl: null,
+              managerName: null,
+            },
+            orderCount: item.orderCount,
+            totalRevenue: item.totalRevenue,
+          };
+        }
       })
     );
 
     // Populate category names for category-wise products
     const categoryProductsWithDetails = await Promise.all(
       categoryWiseProducts.map(async (item) => {
-        const category = await Category.findById(item._id)
-          .select("title imageUrl")
-          .lean();
-        return {
-          category: {
-            id: item._id,
-            title: category?.title || "Unknown Category",
-            imageUrl: category?.imageUrl,
-          },
-          productCount: item.productCount,
-          avgPrice: item.avgPrice,
-        };
+        try {
+          const category = await Category.findById(item._id)
+            .select("title imageUrl")
+            .lean();
+          return {
+            category: {
+              id: item._id,
+              title: category?.title || "Unknown Category",
+              imageUrl: category?.imageUrl,
+            },
+            productCount: item.productCount,
+            avgPrice: item.avgPrice,
+          };
+        } catch (error) {
+          console.warn(`Category not found for ID: ${item._id}`);
+          return {
+            category: {
+              id: item._id,
+              title: "Category Not Found",
+              imageUrl: null,
+            },
+            productCount: item.productCount,
+            avgPrice: item.avgPrice,
+          };
+        }
       })
     );
 
@@ -592,6 +634,11 @@ export const getStoreDashboard = async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(10)
         .populate("user", "mobile fullName")
+        .populate({
+          path: "store",
+          select: "storeName",
+          strictPopulate: false
+        })
         .select("grandTotal status paymentStatus createdAtIST")
         .lean(),
     ]);
@@ -604,21 +651,37 @@ export const getStoreDashboard = async (req, res) => {
     // Populate product details for top products
     const topProductsWithDetails = await Promise.all(
       topProducts.map(async (item) => {
-        const product = await Product.findById(item._id)
-          .select("name images price offerPrice unit")
-          .lean();
-        return {
-          product: {
-            id: item._id,
-            name: product?.name || item.productName,
-            images: product?.images || [],
-            price: product?.price || 0,
-            offerPrice: product?.offerPrice || 0,
-            unit: product?.unit || "piece",
-          },
-          totalSold: item.totalSold,
-          totalRevenue: item.totalRevenue,
-        };
+        try {
+          const product = await Product.findById(item._id)
+            .select("name images price offerPrice unit")
+            .lean();
+          return {
+            product: {
+              id: item._id,
+              name: product?.name || item.productName,
+              images: product?.images || [],
+              price: product?.price || 0,
+              offerPrice: product?.offerPrice || 0,
+              unit: product?.unit || "piece",
+            },
+            totalSold: item.totalSold,
+            totalRevenue: item.totalRevenue,
+          };
+        } catch (error) {
+          console.warn(`Product not found for ID: ${item._id}`);
+          return {
+            product: {
+              id: item._id,
+              name: item.productName || "Unknown Product",
+              images: [],
+              price: 0,
+              offerPrice: 0,
+              unit: "piece",
+            },
+            totalSold: item.totalSold,
+            totalRevenue: item.totalRevenue,
+          };
+        }
       })
     );
 
@@ -637,7 +700,7 @@ export const getStoreDashboard = async (req, res) => {
         orders: {
           total: totalOrders,
           today: todayOrders,
-          week: weekWeek,
+          week: weekOrders,
           month: monthOrders,
         },
         revenue: {
@@ -767,7 +830,11 @@ export const getUserDashboard = async (req, res) => {
       })
         .sort({ createdAt: -1 })
         .limit(10)
-        .populate("store", "storeName storeImageUrl")
+        .populate({
+          path: "store",
+          select: "storeName storeImageUrl",
+          strictPopulate: false
+        })
         .select("grandTotal status paymentStatus createdAtIST")
         .lean(),
 
@@ -793,20 +860,35 @@ export const getUserDashboard = async (req, res) => {
     // Populate store details for favorite stores
     const favoriteStoresWithDetails = await Promise.all(
       favoriteStores.map(async (item) => {
-        const store = await Store.findById(item._id)
-          .select("storeName storeImageUrl location.address managerName")
-          .lean();
-        return {
-          store: {
-            id: item._id,
-            storeName: store?.storeName || "Unknown Store",
-            storeImageUrl: store?.storeImageUrl,
-            address: store?.location?.address,
-            managerName: store?.managerName,
-          },
-          orderCount: item.orderCount,
-          lastOrderDate: item.lastOrderDate,
-        };
+        try {
+          const store = await Store.findById(item._id)
+            .select("storeName storeImageUrl location.address managerName")
+            .lean();
+          return {
+            store: {
+              id: item._id,
+              storeName: store?.storeName || "Unknown Store",
+              storeImageUrl: store?.storeImageUrl,
+              address: store?.location?.address,
+              managerName: store?.managerName,
+            },
+            orderCount: item.orderCount,
+            lastOrderDate: item.lastOrderDate,
+          };
+        } catch (error) {
+          console.warn(`Store not found for ID: ${item._id}`);
+          return {
+            store: {
+              id: item._id,
+              storeName: "Store Not Found",
+              storeImageUrl: null,
+              address: null,
+              managerName: null,
+            },
+            orderCount: item.orderCount,
+            lastOrderDate: item.lastOrderDate,
+          };
+        }
       })
     );
 
@@ -1194,7 +1276,7 @@ export const getAnalyticsByPeriod = async (req, res) => {
             _id: "$store",
             orders: { $sum: 1 },
             revenue: { $sum: "$grandTotal" },
-          },
+          }
         },
         { $sort: { orders: -1 } },
         { $limit: 10 },
