@@ -11,13 +11,13 @@ const productSchema = new Schema(
       trim: true,
     },
 
-    // NEW: store reference (optional) - indexed for faster store queries
-    store: {
-      type: Schema.Types.ObjectId,
-      ref: "Store",
-      default: null,
-      index: true,
-    },
+    // CHANGE: Single store reference से multiple stores array में बदलें
+    stores: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "Store",
+      }
+    ],
 
     category: {
       type: Schema.Types.ObjectId,
@@ -94,7 +94,7 @@ const productSchema = new Schema(
   { timestamps: true }
 );
 
-// IST timestamps
+// IST timestamps (same as before)
 productSchema.pre("save", function (next) {
   const istTime = new Date().toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",

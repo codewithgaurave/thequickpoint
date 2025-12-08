@@ -18,7 +18,6 @@ import {
   assignProductToStore,
   unassignProductFromStore,
   updateProductForStore,
-  deleteProductForStore,
 } from "../controllers/productController.js";
 import { uploadProductImages } from "../config/cloudinary.js";
 
@@ -48,7 +47,7 @@ router.patch(
   updateProductForStore
 );
 
-router.delete("/:storeId/products/:productId", requireAdminAuth, deleteProductForStore);
+// router.delete("/:storeId/products/:productId", requireAdminAuth, deleteProductForStore);
 
 router.patch(
   "/:storeId/products/:productId/assign",

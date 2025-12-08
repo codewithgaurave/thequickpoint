@@ -432,6 +432,7 @@ export const deleteProduct = async (req, res) => {
 //
 // ------------------- NEW: Store-scoped product handlers -------------------
 //
+// controllers/productController.js में निम्नलिखित functions update करें:
 
 // ---------- Get products by store (public) ----------
 // GET /api/stores/:storeId/products
@@ -458,7 +459,7 @@ export const getProductsByStore = async (req, res) => {
     const filter = {
       isActive: true,
       isDeleted: false,
-      store: storeId,
+      stores: storeId, // CHANGE: 'store' से 'stores' में
     };
 
     if (categoryId) filter.category = categoryId;
@@ -468,7 +469,15 @@ export const getProductsByStore = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    return res.json({ store: { id: store._id, storeName: store.storeName }, products });
+    return res.json({ 
+      store: { 
+        id: store._id, 
+        storeName: store.storeName,
+        storeImageUrl: store.storeImageUrl,
+        location: store.location 
+      }, 
+      products 
+    });
   } catch (err) {
     console.error("getProductsByStore error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -560,7 +569,7 @@ export const createProductForStore = async (req, res) => {
       unit: unit || "piece",
       description: description ? description.trim() : "",
       isActive: isActive === undefined ? true : typeof isActive === "string" ? isActive === "true" : !!isActive,
-      store: storeId,
+      stores: [storeId], // CHANGE: Array में storeId डालें
     });
 
     return res.status(201).json({
@@ -588,17 +597,29 @@ export const assignProductToStore = async (req, res) => {
       return res.status(404).json({ message: "Store not found." });
     }
 
+    // Check if product is already assigned to this store
+    const existingProduct = await Product.findOne({
+      _id: productId,
+      isDeleted: false,
+    });
+
+    if (!existingProduct) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+
+    // Check if product is already assigned to this store
+    if (existingProduct.stores && existingProduct.stores.includes(storeId)) {
+      return res.status(400).json({ message: "Product is already assigned to this store." });
+    }
+
+    // Add store to product's stores array
     const product = await Product.findOneAndUpdate(
       { _id: productId, isDeleted: false },
-      { store: storeId },
+      { $addToSet: { stores: storeId } }, // Use $addToSet to avoid duplicates
       { new: true }
     )
       .populate("category", "title imageUrl isActive")
       .lean();
-
-    if (!product) {
-      return res.status(404).json({ message: "Product not found." });
-    }
 
     return res.json({ message: "Product assigned to store successfully", product });
   } catch (err) {
@@ -616,19 +637,21 @@ export const unassignProductFromStore = async (req, res) => {
       return res.status(400).json({ message: "storeId and productId are required in URL." });
     }
 
-    // ensure product currently belongs to this store (optional)
-    const product = await Product.findOne({ _id: productId, isDeleted: false }).lean();
+    // Check if product exists
+    const product = await Product.findOne({ _id: productId, isDeleted: false });
     if (!product) {
       return res.status(404).json({ message: "Product not found." });
     }
 
-    if (!product.store || String(product.store) !== String(storeId)) {
+    // Check if product is assigned to this store
+    if (!product.stores || !product.stores.includes(storeId)) {
       return res.status(400).json({ message: "Product is not assigned to this store." });
     }
 
+    // Remove store from product's stores array
     const updated = await Product.findOneAndUpdate(
       { _id: productId, isDeleted: false },
-      { store: null },
+      { $pull: { stores: storeId } }, // Use $pull to remove from array
       { new: true }
     )
       .populate("category", "title imageUrl isActive")
@@ -641,7 +664,28 @@ export const unassignProductFromStore = async (req, res) => {
   }
 };
 
-// ---------- Update product but ensure it belongs to store (admin) ----------
+// ---------- Get all products with their assigned stores (admin) ----------
+// GET /api/products/admin/list/all
+export const adminListProductsWithStores = async (req, res) => {
+  try {
+    const { categoryId } = req.query;
+    const filter = { isDeleted: false };
+    if (categoryId) filter.category = categoryId;
+
+    const products = await Product.find(filter)
+      .populate("category", "title imageUrl isActive")
+      .populate("stores", "storeName storeImageUrl location isActive") // Populate stores
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json({ products });
+  } catch (err) {
+    console.error("adminListProductsWithStores error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ---------- Update product but ensure it belongs to at least one store (admin) ----------
 // PATCH /api/stores/:storeId/products/:productId
 export const updateProductForStore = async (req, res) => {
   try {
@@ -657,13 +701,15 @@ export const updateProductForStore = async (req, res) => {
       return res.status(404).json({ message: "Store not found." });
     }
 
-    // ensure product belongs to store
+    // ensure product exists and is assigned to this store
     const existing = await Product.findOne({ _id: productId, isDeleted: false }).lean();
     if (!existing) {
       return res.status(404).json({ message: "Product not found." });
     }
-    if (!existing.store || String(existing.store) !== String(storeId)) {
-      return res.status(403).json({ message: "Product does not belong to this store." });
+    
+    // Check if product is assigned to this store
+    if (!existing.stores || !existing.stores.includes(storeId)) {
+      return res.status(403).json({ message: "Product is not assigned to this store." });
     }
 
     // Reuse update logic from updateProduct - but here we will only update fields provided.
@@ -743,6 +789,7 @@ export const updateProductForStore = async (req, res) => {
       runValidators: true,
     })
       .populate("category", "title imageUrl isActive")
+      .populate("stores", "storeName storeImageUrl location isActive")
       .lean();
 
     return res.json({ message: "Product updated successfully", product });
@@ -752,28 +799,28 @@ export const updateProductForStore = async (req, res) => {
   }
 };
 
-// ---------- Delete product (soft) but ensure it belongs to store (admin) ----------
-// DELETE /api/stores/:storeId/products/:productId
-export const deleteProductForStore = async (req, res) => {
-  try {
-    const { storeId, productId } = req.params;
-    if (!storeId || !productId) {
-      return res.status(400).json({ message: "storeId and productId are required in URL." });
-    }
+// ---------- Delete product (soft) ----------
+// DELETE /api/products/:id  (admin)
+// export const deleteProduct = async (req, res) => {
+//   try {
+//     const product = await Product.findOneAndUpdate(
+//       { _id: req.params.id, isDeleted: false },
+//       { isDeleted: true, isActive: false, stores: [] }, // Clear stores when deleting
+//       { new: true }
+//     )
+//     .populate("stores", "storeName")
+//     .lean();
 
-    const existing = await Product.findOne({ _id: productId, isDeleted: false }).lean();
-    if (!existing) {
-      return res.status(404).json({ message: "Product not found." });
-    }
-    if (!existing.store || String(existing.store) !== String(storeId)) {
-      return res.status(403).json({ message: "Product does not belong to this store." });
-    }
+//     if (!product) {
+//       return res.status(404).json({ message: "Product not found" });
+//     }
 
-    await Product.findOneAndUpdate({ _id: productId }, { isDeleted: true, isActive: false }, { new: true }).lean();
-
-    return res.json({ message: "Product deleted (soft) successfully" });
-  } catch (err) {
-    console.error("deleteProductForStore error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
+//     return res.json({
+//       message: "Product deleted (soft) successfully",
+//       unassignedFromStores: product.stores?.map(s => s.storeName) || []
+//     });
+//   } catch (err) {
+//     console.error("deleteProduct error:", err);
+//     return res.status(500).json({ message: "Server error" });
+//   }
+// };

@@ -9,6 +9,7 @@ import {
   updateProduct,
   updateProductStatus,
   deleteProduct,
+  adminListProductsWithStores,
 } from "../controllers/productController.js";
 import { requireAdminAuth } from "../middleware/auth.js";
 import { uploadProductImages } from "../config/cloudinary.js";
@@ -41,4 +42,8 @@ router.patch("/:id/status", requireAdminAuth, updateProductStatus);
 
 router.delete("/:id", requireAdminAuth, deleteProduct);
 
+// routes/productRoutes.js में नया route add करें:
+
+// GET /api/products/admin/list/all - Get all products with store assignments
+router.get('/admin/list/all', requireAdminAuth,adminListProductsWithStores);
 export default router;
