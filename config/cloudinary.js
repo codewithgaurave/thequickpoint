@@ -199,6 +199,25 @@ const storeImageMulter = multer({
 // single: storeImage
 const uploadStoreImage = storeImageMulter.single("storeImage");
 
+// DELIVERY BOY — PROFILE + DOCUMENT
+const deliveryBoyStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "delivery_boys",
+    allowed_formats: ["jpg", "jpeg", "png", "webp", "pdf"],
+  },
+});
+
+const uploadDeliveryBoyFiles = multer({
+  storage: deliveryBoyStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+
+export const uploadDeliveryBoy = uploadDeliveryBoyFiles.fields([
+  { name: "profileImage", maxCount: 1 },
+  { name: "document", maxCount: 1 },
+]);
+
 // -----------------------------------------------------
 // EXPORTS
 // -----------------------------------------------------

@@ -21,6 +21,8 @@ import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import storeOwnerRoutes from "./routes/storeOwnerRoutes.js";
+import deliveryBoyRoutes from "./routes/deliveryBoyRoutes.js";
+
 
 const app = express();
 
@@ -58,6 +60,7 @@ app.use("/api/store-managers", storeManagerRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/delivery-boys", deliveryBoyRoutes);
 
 // Connect DB
 await connectDB();
