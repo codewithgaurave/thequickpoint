@@ -488,23 +488,38 @@ export const getAdminDashboard = async (req, res) => {
 
 // --------------------------------------
 // GET /api/dashboard/store/:storeId
-// Store-specific Dashboard
+// Store-specific Dashboard - Public Access
 // --------------------------------------
 export const getStoreDashboard = async (req, res) => {
   try {
     const { storeId } = req.params;
 
     if (!storeId) {
-      return res.status(400).json({ message: "storeId is required." });
+      return res.status(400).json({ 
+        success: false,
+        message: "storeId is required." 
+      });
+    }
+
+    // Validate storeId format if needed
+    if (!mongoose.Types.ObjectId.isValid(storeId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid store ID format." 
+      });
     }
 
     const store = await Store.findOne({
       _id: storeId,
       isDeleted: false,
+      isActive: true, // Only return active stores
     }).lean();
 
     if (!store) {
-      return res.status(404).json({ message: "Store not found." });
+      return res.status(404).json({ 
+        success: false,
+        message: "Store not found or inactive." 
+      });
     }
 
     const today = new Date();
@@ -626,21 +641,15 @@ export const getStoreDashboard = async (req, res) => {
         { $limit: 10 },
       ]),
 
-      // Recent orders
+      // Recent orders (limited public info)
       Order.find({
         store: storeId,
         isDeleted: false,
       })
         .sort({ createdAt: -1 })
         .limit(10)
-        .populate("user", "mobile fullName")
-        .populate({
-          path: "store",
-          select: "storeName",
-          strictPopulate: false
-        })
-        .select("grandTotal status paymentStatus createdAtIST")
-        .lean(),
+        .select("grandTotal status createdAtIST")
+        .lean(), // Removed user population for privacy
     ]);
 
     const orderStatus = {};
@@ -653,8 +662,13 @@ export const getStoreDashboard = async (req, res) => {
       topProducts.map(async (item) => {
         try {
           const product = await Product.findById(item._id)
-            .select("name images price offerPrice unit")
+            .select("name images price offerPrice unit isActive")
             .lean();
+          
+          if (!product || !product.isActive) {
+            return null; // Skip inactive products
+          }
+          
           return {
             product: {
               id: item._id,
@@ -669,21 +683,13 @@ export const getStoreDashboard = async (req, res) => {
           };
         } catch (error) {
           console.warn(`Product not found for ID: ${item._id}`);
-          return {
-            product: {
-              id: item._id,
-              name: item.productName || "Unknown Product",
-              images: [],
-              price: 0,
-              offerPrice: 0,
-              unit: "piece",
-            },
-            totalSold: item.totalSold,
-            totalRevenue: item.totalRevenue,
-          };
+          return null;
         }
       })
     );
+
+    // Filter out null values
+    const filteredTopProducts = topProductsWithDetails.filter(item => item !== null);
 
     const dashboard = {
       store: {
@@ -692,6 +698,9 @@ export const getStoreDashboard = async (req, res) => {
         storeImageUrl: store.storeImageUrl,
         managerName: store.managerName,
         managerPhone: store.managerPhone,
+        location: store.location,
+        city: store.city,
+        state: store.state,
         isActive: store.isActive,
       },
 
@@ -722,7 +731,7 @@ export const getStoreDashboard = async (req, res) => {
         },
       },
 
-      topProducts: topProductsWithDetails,
+      topProducts: filteredTopProducts,
       recentOrders: recentOrders,
     };
 
