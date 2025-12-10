@@ -1,27 +1,55 @@
 import Cart from "../models/Cart.js";
 import Order from "../models/Order.js";
 import Store from "../models/Store.js";
+import mongoose from "mongoose";
 
+// Enhanced getUserIdFromReq function that supports both:
+// 1. Query parameters (public access)
+// 2. Authentication token (secure access)
 const getUserIdFromReq = (req) => {
-  const id =
-    req.body.userId ||
-    req.query.userId ||
-    req.params.userId ||
-    "";
+  // First check for authenticated user (from middleware)
+  if (req.user && (req.user.userId || req.user._id || req.user.id)) {
+    return req.user.userId || req.user._id || req.user.id;
+  }
+  
+  // Then check for req.userId set by middleware
+  if (req.userId) {
+    return req.userId;
+  }
+  
+  // Then check query parameters (for public access)
+  const id = req.query.userId || req.params.userId || req.body.userId || "";
+  
+  // Clean and return
   return typeof id === "string" ? id.trim() : id;
+};
+
+// Enhanced version with validation
+const getUserIdFromReqWithValidation = (req) => {
+  const userId = getUserIdFromReq(req);
+  
+  // Validate if it's a MongoDB ObjectId
+  if (userId && !mongoose.isValidObjectId(userId)) {
+    throw new Error("Invalid user ID format");
+  }
+  
+  return userId;
 };
 
 // --------------------------------------
 // POST /api/orders/checkout (Global or Store checkout)
-// body: { userId, storeId (optional), ...shippingFields }
+// body: { userId (optional if using auth), storeId (optional), ...shippingFields }
 // --------------------------------------
 export const checkoutFromCart = async (req, res) => {
   try {
-    const userId = getUserIdFromReq(req);
+    const userId = getUserIdFromReqWithValidation(req);
     const { storeId } = req.body; // Optional: if checking out from a specific store
     
     if (!userId) {
-      return res.status(400).json({ message: "userId is required." });
+      return res.status(400).json({ 
+        success: false,
+        message: "userId is required. Provide it in query, body, or use authentication token." 
+      });
     }
 
     const cart = await Cart.findOne({
@@ -32,7 +60,10 @@ export const checkoutFromCart = async (req, res) => {
     .populate("items.store");
 
     if (!cart || !cart.items || cart.items.length === 0) {
-      return res.status(400).json({ message: "Cart is empty." });
+      return res.status(400).json({ 
+        success: false,
+        message: "Cart is empty." 
+      });
     }
 
     // Filter items based on storeId
@@ -47,6 +78,7 @@ export const checkoutFromCart = async (req, res) => {
       
       if (itemsToCheckout.length === 0) {
         return res.status(400).json({ 
+          success: false,
           message: "No items in cart for this store." 
         });
       }
@@ -59,7 +91,10 @@ export const checkoutFromCart = async (req, res) => {
       }).lean();
       
       if (!store) {
-        return res.status(404).json({ message: "Store not found." });
+        return res.status(404).json({ 
+          success: false,
+          message: "Store not found." 
+        });
       }
       
       orderStore = storeId;
@@ -69,6 +104,7 @@ export const checkoutFromCart = async (req, res) => {
       
       if (itemsToCheckout.length === 0) {
         return res.status(400).json({ 
+          success: false,
           message: "No global items in cart. Please specify storeId for store checkout." 
         });
       }
@@ -101,6 +137,7 @@ export const checkoutFromCart = async (req, res) => {
 
       if (!product || product.isDeleted || !product.isActive) {
         return res.status(400).json({
+          success: false,
           message: `Product ${item.product._id} is no longer available.`,
         });
       }
@@ -195,6 +232,7 @@ export const checkoutFromCart = async (req, res) => {
       .lean();
 
     return res.status(201).json({
+      success: true,
       message: orderStore 
         ? `Order placed for ${populatedOrder.store?.storeName || 'store'} successfully`
         : "Global order placed successfully",
@@ -202,25 +240,36 @@ export const checkoutFromCart = async (req, res) => {
     });
   } catch (err) {
     console.error("checkoutFromCart error:", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
 // --------------------------------------
 // POST /api/orders/store/:storeId/checkout
 // Checkout from specific store directly
+// Supports both: with auth token OR with userId in query/body
 // --------------------------------------
 export const checkoutFromStore = async (req, res) => {
   try {
-    const userId = getUserIdFromReq(req);
+    const userId = getUserIdFromReqWithValidation(req);
     const { storeId } = req.params;
     
     if (!userId) {
-      return res.status(400).json({ message: "userId is required." });
+      return res.status(400).json({ 
+        success: false,
+        message: "userId is required. Provide it in query, body, or use authentication token." 
+      });
     }
 
     if (!storeId) {
-      return res.status(400).json({ message: "storeId is required." });
+      return res.status(400).json({ 
+        success: false,
+        message: "storeId is required." 
+      });
     }
 
     // Verify store
@@ -231,7 +280,10 @@ export const checkoutFromStore = async (req, res) => {
     }).lean();
     
     if (!store) {
-      return res.status(404).json({ message: "Store not found." });
+      return res.status(404).json({ 
+        success: false,
+        message: "Store not found." 
+      });
     }
 
     // Call the main checkout function with storeId
@@ -239,19 +291,28 @@ export const checkoutFromStore = async (req, res) => {
     return checkoutFromCart(req, res);
   } catch (err) {
     console.error("checkoutFromStore error:", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
 // --------------------------------------
 // GET /api/orders/my?userId=...
 // Get user's all orders (both global and store)
+// Supports both: with auth token OR with userId in query
 // --------------------------------------
 export const getMyOrders = async (req, res) => {
   try {
-    const userId = getUserIdFromReq(req);
+    const userId = getUserIdFromReqWithValidation(req);
+    
     if (!userId) {
-      return res.status(400).json({ message: "userId is required." });
+      return res.status(400).json({ 
+        success: false,
+        message: "userId is required. Provide it as query parameter (?userId=...) or use authentication token." 
+      });
     }
 
     const orders = await Order.find({
@@ -268,6 +329,8 @@ export const getMyOrders = async (req, res) => {
     const storeOrders = orders.filter(order => order.store);
 
     return res.json({ 
+      success: true,
+      count: orders.length,
       orders,
       organized: {
         globalOrders,
@@ -276,19 +339,36 @@ export const getMyOrders = async (req, res) => {
     });
   } catch (err) {
     console.error("getMyOrders error:", err);
-    return res.status(500).json({ message: "Server error" });
+    
+    if (err.message === "Invalid user ID format") {
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid user ID format." 
+      });
+    }
+    
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
 // --------------------------------------
 // GET /api/orders/my/global?userId=...
 // Get only global orders
+// Supports both: with auth token OR with userId in query
 // --------------------------------------
 export const getMyGlobalOrders = async (req, res) => {
   try {
-    const userId = getUserIdFromReq(req);
+    const userId = getUserIdFromReqWithValidation(req);
+    
     if (!userId) {
-      return res.status(400).json({ message: "userId is required." });
+      return res.status(400).json({ 
+        success: false,
+        message: "userId is required." 
+      });
     }
 
     const orders = await Order.find({
@@ -300,28 +380,51 @@ export const getMyGlobalOrders = async (req, res) => {
       .populate("items.product", "name images unit")
       .lean();
 
-    return res.json({ orders });
+    return res.json({ 
+      success: true,
+      count: orders.length,
+      orders 
+    });
   } catch (err) {
     console.error("getMyGlobalOrders error:", err);
-    return res.status(500).json({ message: "Server error" });
+    
+    if (err.message === "Invalid user ID format") {
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid user ID format." 
+      });
+    }
+    
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
 // --------------------------------------
 // GET /api/orders/my/store/:storeId?userId=...
 // Get orders for specific store
+// Supports both: with auth token OR with userId in query
 // --------------------------------------
 export const getMyStoreOrders = async (req, res) => {
   try {
-    const userId = getUserIdFromReq(req);
+    const userId = getUserIdFromReqWithValidation(req);
     const { storeId } = req.params;
 
     if (!userId) {
-      return res.status(400).json({ message: "userId is required." });
+      return res.status(400).json({ 
+        success: false,
+        message: "userId is required." 
+      });
     }
 
     if (!storeId) {
-      return res.status(400).json({ message: "storeId is required." });
+      return res.status(400).json({ 
+        success: false,
+        message: "storeId is required." 
+      });
     }
 
     const orders = await Order.find({
@@ -334,23 +437,44 @@ export const getMyStoreOrders = async (req, res) => {
       .populate("store", "storeName managerName managerPhone location")
       .lean();
 
-    return res.json({ orders });
+    return res.json({ 
+      success: true,
+      count: orders.length,
+      orders 
+    });
   } catch (err) {
     console.error("getMyStoreOrders error:", err);
-    return res.status(500).json({ message: "Server error" });
+    
+    if (err.message === "Invalid user ID format") {
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid user ID format." 
+      });
+    }
+    
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
 // --------------------------------------
 // GET /api/orders/my/:id?userId=...
+// Get specific order by ID
+// Supports both: with auth token OR with userId in query
 // --------------------------------------
 export const getMyOrderById = async (req, res) => {
   try {
-    const userId = getUserIdFromReq(req);
+    const userId = getUserIdFromReqWithValidation(req);
     const { id } = req.params;
 
     if (!userId) {
-      return res.status(400).json({ message: "userId is required." });
+      return res.status(400).json({ 
+        success: false,
+        message: "userId is required." 
+      });
     }
 
     const order = await Order.findOne({
@@ -363,13 +487,31 @@ export const getMyOrderById = async (req, res) => {
       .lean();
 
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json({ 
+        success: false,
+        message: "Order not found" 
+      });
     }
 
-    return res.json({ order });
+    return res.json({ 
+      success: true,
+      order 
+    });
   } catch (err) {
     console.error("getMyOrderById error:", err);
-    return res.status(500).json({ message: "Server error" });
+    
+    if (err.message === "Invalid user ID format") {
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid user ID format." 
+      });
+    }
+    
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
@@ -389,6 +531,8 @@ export const adminListOrders = async (_req, res) => {
     const storeOrders = orders.filter(order => order.store);
 
     return res.json({ 
+      success: true,
+      count: orders.length,
       orders,
       counts: {
         total: orders.length,
@@ -402,7 +546,11 @@ export const adminListOrders = async (_req, res) => {
     });
   } catch (err) {
     console.error("adminListOrders error:", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
@@ -419,10 +567,18 @@ export const adminGlobalOrders = async (_req, res) => {
       .populate("user", "mobile email fullName")
       .lean();
 
-    return res.json({ orders });
+    return res.json({ 
+      success: true,
+      count: orders.length,
+      orders 
+    });
   } catch (err) {
     console.error("adminGlobalOrders error:", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
@@ -433,6 +589,13 @@ export const adminStoreOrders = async (req, res) => {
   try {
     const { storeId } = req.params;
 
+    if (!storeId) {
+      return res.status(400).json({ 
+        success: false,
+        message: "storeId is required." 
+      });
+    }
+
     const orders = await Order.find({
       store: storeId,
       isDeleted: false,
@@ -442,10 +605,18 @@ export const adminStoreOrders = async (req, res) => {
       .populate("store", "storeName managerName")
       .lean();
 
-    return res.json({ orders });
+    return res.json({ 
+      success: true,
+      count: orders.length,
+      orders 
+    });
   } catch (err) {
     console.error("adminStoreOrders error:", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
@@ -456,6 +627,13 @@ export const adminGetOrderById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!id) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Order ID is required." 
+      });
+    }
+
     const order = await Order.findOne({ _id: id, isDeleted: false })
       .populate("user", "mobile email fullName")
       .populate("store", "storeName managerName managerPhone location")
@@ -463,13 +641,23 @@ export const adminGetOrderById = async (req, res) => {
       .lean();
 
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json({ 
+        success: false,
+        message: "Order not found" 
+      });
     }
 
-    return res.json({ order });
+    return res.json({ 
+      success: true,
+      order 
+    });
   } catch (err) {
     console.error("adminGetOrderById error:", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
@@ -481,9 +669,23 @@ export const adminUpdateOrderStatus = async (req, res) => {
     const { id } = req.params;
     const { status, paymentStatus } = req.body;
 
+    if (!id) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Order ID is required." 
+      });
+    }
+
     const update = {};
     if (status !== undefined) update.status = status;
     if (paymentStatus !== undefined) update.paymentStatus = paymentStatus;
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: "No fields to update. Provide status or paymentStatus." 
+      });
+    }
 
     const order = await Order.findOneAndUpdate(
       { _id: id, isDeleted: false },
@@ -496,16 +698,24 @@ export const adminUpdateOrderStatus = async (req, res) => {
       .lean();
 
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json({ 
+        success: false,
+        message: "Order not found" 
+      });
     }
 
     return res.json({
+      success: true,
       message: "Order updated successfully",
       order,
     });
   } catch (err) {
     console.error("adminUpdateOrderStatus error:", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
 
@@ -516,6 +726,13 @@ export const adminDeleteOrder = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!id) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Order ID is required." 
+      });
+    }
+
     const order = await Order.findOneAndUpdate(
       { _id: id, isDeleted: false },
       { isDeleted: true },
@@ -523,14 +740,22 @@ export const adminDeleteOrder = async (req, res) => {
     ).lean();
 
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json({ 
+        success: false,
+        message: "Order not found" 
+      });
     }
 
     return res.json({
+      success: true,
       message: "Order deleted (soft) successfully",
     });
   } catch (err) {
     console.error("adminDeleteOrder error:", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 };
