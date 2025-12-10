@@ -4,12 +4,13 @@ import {
   getStoreOrderById,
   updateStoreOrderStatus,
   getStoreDashboard,
+  verifyStoreOwner
 } from "../controllers/storeOrderController.js";
-import { verifyStoreOwner } from "../controllers/storeOrderController.js";
 
 const router = express.Router();
 
-// All routes require store owner authentication
+// Apply verifyStoreOwner middleware to all routes
+// Now supports userId as query parameter without authentication
 router.use("/:storeId", verifyStoreOwner);
 
 // Dashboard
