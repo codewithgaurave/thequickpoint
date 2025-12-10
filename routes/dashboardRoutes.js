@@ -20,7 +20,7 @@ router.get("/quick-stats", requireAdminAuth, getQuickStats);
 router.get("/analytics/period", requireAdminAuth, getAnalyticsByPeriod);
 
 // Store manager routes
-router.get("/store/:storeId", requireStoreManagerAuth, getStoreDashboard);
+router.get("/store/:storeId", getStoreDashboard);
 
 // User routes
 router.get("/user/:userId", requireUserAuth, getUserDashboard);
