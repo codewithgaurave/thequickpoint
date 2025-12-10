@@ -501,8 +501,8 @@ export const getStoreDashboard = async (req, res) => {
       });
     }
 
-    // Validate storeId format if needed
-    if (!mongoose.Types.ObjectId.isValid(storeId)) {
+    // Validate storeId format
+    if (!mongoose.isValidObjectId(storeId)) {
       return res.status(400).json({ 
         success: false,
         message: "Invalid store ID format." 
@@ -512,7 +512,7 @@ export const getStoreDashboard = async (req, res) => {
     const store = await Store.findOne({
       _id: storeId,
       isDeleted: false,
-      isActive: true, // Only return active stores
+      isActive: true,
     }).lean();
 
     if (!store) {
@@ -526,6 +526,9 @@ export const getStoreDashboard = async (req, res) => {
     const startOfToday = new Date(today.setHours(0, 0, 0, 0));
     const startOfWeek = new Date(today.setDate(today.getDate() - 7));
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    // Convert storeId to ObjectId once
+    const storeObjectId = new mongoose.Types.ObjectId(storeId);
 
     const [
       storeProducts,
@@ -556,7 +559,7 @@ export const getStoreDashboard = async (req, res) => {
       Order.aggregate([
         {
           $match: {
-            store: mongoose.Types.ObjectId(storeId),
+            store: storeObjectId,
             isDeleted: false,
           },
         },
@@ -570,7 +573,7 @@ export const getStoreDashboard = async (req, res) => {
       Order.aggregate([
         {
           $match: {
-            store: mongoose.Types.ObjectId(storeId),
+            store: storeObjectId,
             isDeleted: false,
             createdAt: { $gte: startOfToday },
           },
@@ -585,7 +588,7 @@ export const getStoreDashboard = async (req, res) => {
       Order.aggregate([
         {
           $match: {
-            store: mongoose.Types.ObjectId(storeId),
+            store: storeObjectId,
             isDeleted: false,
             createdAt: { $gte: startOfWeek },
           },
@@ -600,7 +603,7 @@ export const getStoreDashboard = async (req, res) => {
       Order.aggregate([
         {
           $match: {
-            store: mongoose.Types.ObjectId(storeId),
+            store: storeObjectId,
             isDeleted: false,
             createdAt: { $gte: startOfMonth },
           },
@@ -612,7 +615,7 @@ export const getStoreDashboard = async (req, res) => {
       Order.aggregate([
         {
           $match: {
-            store: mongoose.Types.ObjectId(storeId),
+            store: storeObjectId,
             isDeleted: false,
           },
         },
@@ -623,7 +626,7 @@ export const getStoreDashboard = async (req, res) => {
       Order.aggregate([
         {
           $match: {
-            store: mongoose.Types.ObjectId(storeId),
+            store: storeObjectId,
             isDeleted: false,
             status: { $ne: "cancelled" },
           },
@@ -648,8 +651,8 @@ export const getStoreDashboard = async (req, res) => {
       })
         .sort({ createdAt: -1 })
         .limit(10)
-        .select("grandTotal status createdAtIST")
-        .lean(), // Removed user population for privacy
+        .select("grandTotal status paymentStatus createdAtIST")
+        .lean(),
     ]);
 
     const orderStatus = {};
@@ -666,7 +669,7 @@ export const getStoreDashboard = async (req, res) => {
             .lean();
           
           if (!product || !product.isActive) {
-            return null; // Skip inactive products
+            return null;
           }
           
           return {
@@ -729,6 +732,11 @@ export const getStoreDashboard = async (req, res) => {
           delivered: orderStatus.delivered || 0,
           cancelled: orderStatus.cancelled || 0,
         },
+        payment: {
+          pending: orderStatus.paymentPending || 0,
+          paid: orderStatus.paid || 0,
+          failed: orderStatus.failed || 0,
+        },
       },
 
       topProducts: filteredTopProducts,
@@ -745,7 +753,7 @@ export const getStoreDashboard = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: err.message,
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
     });
   }
 };
