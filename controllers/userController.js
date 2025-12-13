@@ -159,14 +159,17 @@ export const verifyOtp = async (req, res) => {
 };
 
 // ------------------------------
-// GET /api/users/:id/profile  (ID-based profile)
+// GET /api/users/profile  (Query parameter से user ID)
 // ------------------------------
-export const getUserProfileById = async (req, res) => {
+export const getUserProfile = async (req, res) => {
   try {
-    const userId = req.params.id;
+    // Query parameters से user ID लें
+    const userId = req.query.userId || req.query.id;
     
     if (!userId) {
-      return res.status(400).json({ message: "User ID is required." });
+      return res.status(400).json({ 
+        message: "User ID is required as query parameter. Use ?userId=USER_ID" 
+      });
     }
 
     const user = await User.findById(userId).lean();
@@ -204,7 +207,7 @@ export const getUserProfileById = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getUserProfileById error:", err);
+    console.error("getUserProfile error:", err);
     
     // Handle invalid ObjectId format
     if (err.name === 'CastError') {
@@ -216,14 +219,17 @@ export const getUserProfileById = async (req, res) => {
 };
 
 // ------------------------------
-// PATCH /api/users/:id/profile  (ID-based update)
+// PATCH /api/users/profile  (Query parameter से user ID)
 // ------------------------------
-export const updateUserProfileById = async (req, res) => {
+export const updateUserProfile = async (req, res) => {
   try {
-    const userId = req.params.id;
+    // Query parameters से user ID लें
+    const userId = req.query.userId || req.query.id;
     
     if (!userId) {
-      return res.status(400).json({ message: "User ID is required." });
+      return res.status(400).json({ 
+        message: "User ID is required as query parameter. Use ?userId=USER_ID" 
+      });
     }
 
     const {
@@ -298,7 +304,7 @@ export const updateUserProfileById = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("updateUserProfileById error:", err);
+    console.error("updateUserProfile error:", err);
     
     // Handle invalid ObjectId format
     if (err.name === 'CastError') {
@@ -310,14 +316,17 @@ export const updateUserProfileById = async (req, res) => {
 };
 
 // ------------------------------
-// POST /api/users/:id/logout-all  (ID-based logout all)
+// POST /api/users/logout-all  (Query parameter से user ID)
 // ------------------------------
-export const logoutAllUserById = async (req, res) => {
+export const logoutAllUser = async (req, res) => {
   try {
-    const userId = req.params.id;
+    // Query parameters से user ID लें
+    const userId = req.query.userId || req.query.id;
     
     if (!userId) {
-      return res.status(400).json({ message: "User ID is required." });
+      return res.status(400).json({ 
+        message: "User ID is required as query parameter. Use ?userId=USER_ID" 
+      });
     }
 
     const user = await User.findById(userId).select("+tokenVersion");
@@ -333,7 +342,7 @@ export const logoutAllUserById = async (req, res) => {
       message: "Logged out from all user sessions successfully.",
     });
   } catch (err) {
-    console.error("logoutAllUserById error:", err);
+    console.error("logoutAllUser error:", err);
     
     // Handle invalid ObjectId format
     if (err.name === 'CastError') {
@@ -345,7 +354,7 @@ export const logoutAllUserById = async (req, res) => {
 };
 
 // ------------------------------
-// ADMIN APIs
+// ADMIN APIs (इन्हें वैसे ही रखें)
 // ------------------------------
 
 // GET /api/users  (admin)

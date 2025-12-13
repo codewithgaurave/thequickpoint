@@ -3,9 +3,9 @@ import {
   requestRegisterOtp,
   requestLoginOtp,
   verifyOtp,
-  getUserProfileById,
-  updateUserProfileById,
-  logoutAllUserById,
+  getUserProfile,
+  updateUserProfile,
+  logoutAllUser,
   adminListUsers,
   adminGetUser,
   adminUpdateUser,
@@ -22,9 +22,9 @@ router.post("/request-otp/login", requestLoginOtp);       // Login screen
 router.post("/verify-otp", verifyOtp);
 
 // ID-based user operations (no authentication required)
-router.get("/:id/profile", getUserProfileById);           // Get user profile by ID
-router.patch("/:id/profile", uploadUserFields, updateUserProfileById); // Update profile by ID
-router.post("/:id/logout-all", logoutAllUserById);        // Logout all sessions by ID
+router.get("/profile", getUserProfile);                   // GET: /api/users/profile?userId=USER_ID
+router.patch("/profile", uploadUserFields, updateUserProfile); // PATCH: /api/users/profile?userId=USER_ID
+router.post("/logout-all", logoutAllUser);                // POST: /api/users/logout-all?userId=USER_ID
 
 // Admin operations on users (admin authentication still required)
 router.get("/", adminListUsers);
