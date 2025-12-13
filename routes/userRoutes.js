@@ -1,19 +1,17 @@
-// routes/userRoutes.js
 import express from "express";
 import {
   requestRegisterOtp,
   requestLoginOtp,
   verifyOtp,
-  getMyProfile,
-  updateMyProfile,
-  logoutAllUser,
+  getUserProfileById,
+  updateUserProfileById,
+  logoutAllUserById,
   adminListUsers,
   adminGetUser,
   adminUpdateUser,
   adminBlockUser,
   adminDeleteUser,
 } from "../controllers/userController.js";
-import { requireUserAuth, requireAdminAuth } from "../middleware/auth.js";
 import { uploadUserFields } from "../config/cloudinary.js";
 
 const router = express.Router();
@@ -23,16 +21,16 @@ router.post("/request-otp/register", requestRegisterOtp); // Register screen
 router.post("/request-otp/login", requestLoginOtp);       // Login screen
 router.post("/verify-otp", verifyOtp);
 
-// User protected
-router.get("/me", requireUserAuth, getMyProfile);
-router.patch("/me", requireUserAuth, uploadUserFields, updateMyProfile);
-router.post("/logout-all", requireUserAuth, logoutAllUser);
+// ID-based user operations (no authentication required)
+router.get("/:id/profile", getUserProfileById);           // Get user profile by ID
+router.patch("/:id/profile", uploadUserFields, updateUserProfileById); // Update profile by ID
+router.post("/:id/logout-all", logoutAllUserById);        // Logout all sessions by ID
 
-// Admin operations on users
-router.get("/", requireAdminAuth, adminListUsers);
-router.get("/:id", requireAdminAuth, adminGetUser);
-router.patch("/:id", requireAdminAuth, adminUpdateUser);
-router.patch("/:id/block", requireAdminAuth, adminBlockUser);
-router.delete("/:id", requireAdminAuth, adminDeleteUser);
+// Admin operations on users (admin authentication still required)
+router.get("/", adminListUsers);
+router.get("/:id", adminGetUser);
+router.patch("/:id", adminUpdateUser);
+router.patch("/:id/block", adminBlockUser);
+router.delete("/:id", adminDeleteUser);
 
 export default router;
