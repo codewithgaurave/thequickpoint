@@ -15,7 +15,7 @@ const router = express.Router();
 router.post("/", createAddress);
 
 // GET /api/addresses/my - Get user's addresses
-router.get("/my", getMyAddresses);
+router.post("/my", getMyAddresses);
 
 // GET /api/addresses/my/default - Get default address
 router.get("/my/default", getMyDefaultAddress);
