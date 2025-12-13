@@ -42,6 +42,12 @@ const sendOTPViaSMS = async (mobile, otp) => {
     // Format mobile number (remove +91 or 0 prefix if present)
     let formattedMobile = mobile.replace(/^\+91|^0/, "");
     
+    // Ensure mobile number is 10 digits
+    if (formattedMobile.length !== 10) {
+      console.error(`Invalid mobile number length: ${formattedMobile}`);
+      return { success: false, error: "Invalid mobile number" };
+    }
+    
     const message = `${otp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
     
     const params = new URLSearchParams({
@@ -54,21 +60,84 @@ const sendOTPViaSMS = async (mobile, otp) => {
       templateid: SMS_TEMPLATE_ID
     });
 
-    const response = await axios.get(`${SMS_API_URL}?${params.toString()}`);
+    console.log(`Sending SMS to ${formattedMobile}...`);
     
-    console.log(`SMS sent to ${mobile}. Response:`, response.data);
+    const response = await axios.get(`${SMS_API_URL}?${params.toString()}`, {
+      timeout: 10000 // 10 second timeout
+    });
+    
+    console.log(`SMS API Response for ${mobile}:`, response.data);
     
     // Check if SMS was sent successfully
-    // Typical success response: "Sent Successfully. 1707115717696953530"
-    if (response.data && response.data.includes("Sent Successfully")) {
-      return { success: true, response: response.data };
+    // Check various success patterns
+    const responseText = String(response.data || '').trim();
+    
+    // Common success responses from Indian SMS gateways
+    const successPatterns = [
+      /Sent Successfully/i,
+      /success/i,
+      /Message Submitted/i,
+      /Message accepted/i,
+      /^\d+$/ // Some gateways return just message ID as number
+    ];
+    
+    let isSuccess = false;
+    let messageId = null;
+    
+    // Check for success patterns
+    for (const pattern of successPatterns) {
+      if (pattern.test(responseText)) {
+        isSuccess = true;
+        
+        // Extract message ID if available
+        const idMatch = responseText.match(/\d{10,}/);
+        if (idMatch) {
+          messageId = idMatch[0];
+        }
+        break;
+      }
+    }
+    
+    // If response is a long number (likely message ID), consider it success
+    if (!isSuccess && /^\d{10,}$/.test(responseText)) {
+      isSuccess = true;
+      messageId = responseText;
+    }
+    
+    if (isSuccess) {
+      console.log(`✅ SMS sent successfully to ${mobile}. Message ID: ${messageId || 'N/A'}`);
+      return { 
+        success: true, 
+        messageId: messageId,
+        response: responseText 
+      };
     } else {
-      console.error("SMS gateway error:", response.data);
-      return { success: false, error: response.data };
+      console.error(`❌ SMS failed for ${mobile}. Response:`, responseText);
+      return { 
+        success: false, 
+        error: responseText || "Unknown error",
+        response: responseText 
+      };
     }
   } catch (error) {
     console.error("Error sending SMS:", error.message);
-    return { success: false, error: error.message };
+    
+    // More detailed error logging
+    if (error.response) {
+      // The request was made and the server responded with a status code
+      console.error("SMS Gateway Response Error:", error.response.data);
+      console.error("Status Code:", error.response.status);
+      console.error("Headers:", error.response.headers);
+    } else if (error.request) {
+      // The request was made but no response was received
+      console.error("No response received from SMS gateway");
+    }
+    
+    return { 
+      success: false, 
+      error: error.message,
+      details: error.response?.data 
+    };
   }
 };
 
@@ -166,24 +235,34 @@ export const requestRegisterOtp = async (req, res) => {
     // Send OTP via SMS
     const smsResult = await sendOTPViaSMS(mobile, otp);
 
-    if (!smsResult.success) {
-      console.warn(`Failed to send SMS to ${mobile}. OTP: ${otp}`);
-      // Still return success but log OTP for development
+    // For development/testing - show OTP
+    const showOtpInResponse = process.env.NODE_ENV === "development" || 
+                              process.env.SHOW_OTP === "true" ||
+                              !smsResult.success;
+
+    if (smsResult.success) {
       return res.json({
-        message: "OTP generated. SMS delivery failed (check logs for OTP).",
-        otp: process.env.NODE_ENV === "development" ? otp : undefined,
+        message: "OTP sent successfully to your mobile number for registration.",
+        alreadyRegistered: false,
+        smsDelivered: true,
+        note: "OTP is valid for 10 minutes",
+        // Optional: Show OTP only in dev/test mode
+        ...(showOtpInResponse && { debugOtp: otp })
+      });
+    } else {
+      // SMS failed but OTP is generated
+      console.warn(`SMS failed for ${mobile}. Generated OTP: ${otp}`);
+      
+      return res.json({
+        message: "OTP generated successfully for registration. Please check your SMS.",
         alreadyRegistered: false,
         smsDelivered: false,
-        note: "In development mode, OTP is shown. In production, check SMS gateway."
+        note: "OTP is valid for 10 minutes",
+        // Show OTP in response for testing
+        debugOtp: otp,
+        debugNote: "SMS delivery issue. Use this OTP for testing."
       });
     }
-
-    return res.json({
-      message: "OTP sent successfully to your mobile number.",
-      alreadyRegistered: false,
-      smsDelivered: true,
-      note: "OTP is valid for 10 minutes"
-    });
   } catch (err) {
     console.error("requestRegisterOtp error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -240,24 +319,34 @@ export const requestLoginOtp = async (req, res) => {
     // Send OTP via SMS
     const smsResult = await sendOTPViaSMS(mobile, otp);
 
-    if (!smsResult.success) {
-      console.warn(`Failed to send SMS to ${mobile}. OTP: ${otp}`);
-      // Still return success but log OTP for development
+    // For development/testing - show OTP
+    const showOtpInResponse = process.env.NODE_ENV === "development" || 
+                              process.env.SHOW_OTP === "true" ||
+                              !smsResult.success;
+
+    if (smsResult.success) {
       return res.json({
-        message: "OTP generated. SMS delivery failed (check logs for OTP).",
-        otp: process.env.NODE_ENV === "development" ? otp : undefined,
+        message: "OTP sent successfully to your mobile number.",
+        needRegistration: false,
+        smsDelivered: true,
+        note: "OTP is valid for 10 minutes",
+        // Optional: Show OTP only in dev/test mode when explicitly enabled
+        ...(showOtpInResponse && { debugOtp: otp })
+      });
+    } else {
+      // SMS failed but OTP is generated
+      console.warn(`SMS failed for ${mobile}. Generated OTP: ${otp}`);
+      
+      return res.json({
+        message: "OTP generated successfully. Please check your SMS.",
         needRegistration: false,
         smsDelivered: false,
-        note: "In development mode, OTP is shown. In production, check SMS gateway."
+        note: "OTP is valid for 10 minutes",
+        // Show OTP in response for testing
+        debugOtp: otp,
+        debugNote: "SMS delivery issue. Use this OTP for testing."
       });
     }
-
-    return res.json({
-      message: "OTP sent successfully to your mobile number.",
-      needRegistration: false,
-      smsDelivered: true,
-      note: "OTP is valid for 10 minutes"
-    });
   } catch (err) {
     console.error("requestLoginOtp error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -420,23 +509,34 @@ export const resendOtp = async (req, res) => {
     // Send OTP via SMS
     const smsResult = await sendOTPViaSMS(mobile, otp);
 
-    if (!smsResult.success) {
-      console.warn(`Failed to send SMS to ${mobile}. OTP: ${otp}`);
+    // For development/testing - show OTP
+    const showOtpInResponse = process.env.NODE_ENV === "development" || 
+                              process.env.SHOW_OTP === "true" ||
+                              !smsResult.success;
+
+    if (smsResult.success) {
       return res.json({
-        message: "OTP generated. SMS delivery failed (check logs for OTP).",
-        otp: process.env.NODE_ENV === "development" ? otp : undefined,
+        message: "OTP resent successfully to your mobile number.",
+        smsDelivered: true,
+        purpose,
+        note: "OTP is valid for 10 minutes",
+        // Optional: Show OTP only in dev/test mode
+        ...(showOtpInResponse && { debugOtp: otp })
+      });
+    } else {
+      // SMS failed but OTP is generated
+      console.warn(`SMS failed for ${mobile}. Generated OTP: ${otp}`);
+      
+      return res.json({
+        message: "OTP regenerated successfully. Please check your SMS.",
         smsDelivered: false,
         purpose,
-        note: "In development mode, OTP is shown."
+        note: "OTP is valid for 10 minutes",
+        // Show OTP in response for testing
+        debugOtp: otp,
+        debugNote: "SMS delivery issue. Use this OTP for testing."
       });
     }
-
-    return res.json({
-      message: "OTP resent successfully to your mobile number.",
-      smsDelivered: true,
-      purpose,
-      note: "OTP is valid for 10 minutes"
-    });
   } catch (err) {
     console.error("resendOtp error:", err);
     return res.status(500).json({ message: "Server error" });
