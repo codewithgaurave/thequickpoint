@@ -1,13 +1,76 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import crypto from "crypto";
+import axios from "axios";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
-const FIXED_OTP = "123456";
+
+// SMS Gateway Configuration
+const SMS_API_URL = "http://sms.webzmedia.co.in/http-api.php";
+const SMS_USERNAME = process.env.SMS_USERNAME || "Quickpoint";
+const SMS_PASSWORD = process.env.SMS_PASSWORD || "Quickpoint123";
+const SMS_SENDER_ID = process.env.SMS_SENDER_ID || "THQPNT";
+const SMS_ROUTE = process.env.SMS_ROUTE || "1";
+const SMS_TEMPLATE_ID = process.env.SMS_TEMPLATE_ID || "1107176249859819412";
+
+// OTP configuration
+const OTP_EXPIRY_MINUTES = 10; // OTP validity in minutes
+const OTP_LENGTH = 6; // 6-digit OTP
 
 if (!JWT_SECRET) {
   console.error("❌ JWT_SECRET is missing in environment variables");
 }
+
+if (!SMS_USERNAME || !SMS_PASSWORD) {
+  console.warn("⚠️  SMS credentials not configured. OTPs will be logged but not sent.");
+}
+
+// helper: generate random OTP
+const generateOTP = () => {
+  const digits = "0123456789";
+  let otp = "";
+  for (let i = 0; i < OTP_LENGTH; i++) {
+    otp += digits[Math.floor(Math.random() * 10)];
+  }
+  return otp;
+};
+
+// helper: send OTP via SMS
+const sendOTPViaSMS = async (mobile, otp) => {
+  try {
+    // Format mobile number (remove +91 or 0 prefix if present)
+    let formattedMobile = mobile.replace(/^\+91|^0/, "");
+    
+    const message = `${otp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
+    
+    const params = new URLSearchParams({
+      username: SMS_USERNAME,
+      password: SMS_PASSWORD,
+      senderid: SMS_SENDER_ID,
+      route: SMS_ROUTE,
+      number: formattedMobile,
+      message: message,
+      templateid: SMS_TEMPLATE_ID
+    });
+
+    const response = await axios.get(`${SMS_API_URL}?${params.toString()}`);
+    
+    console.log(`SMS sent to ${mobile}. Response:`, response.data);
+    
+    // Check if SMS was sent successfully
+    // Typical success response: "Sent Successfully. 1707115717696953530"
+    if (response.data && response.data.includes("Sent Successfully")) {
+      return { success: true, response: response.data };
+    } else {
+      console.error("SMS gateway error:", response.data);
+      return { success: false, error: response.data };
+    }
+  } catch (error) {
+    console.error("Error sending SMS:", error.message);
+    return { success: false, error: error.message };
+  }
+};
 
 // helper: sign JWT for user
 const signUserJwt = (user) =>
@@ -22,6 +85,44 @@ const signUserJwt = (user) =>
     { expiresIn: JWT_EXPIRES_IN }
   );
 
+// In-memory OTP store (in production, use Redis or database)
+const otpStore = new Map();
+
+// Clean expired OTPs
+const cleanExpiredOTPs = () => {
+  const now = Date.now();
+  for (const [key, data] of otpStore.entries()) {
+    if (now > data.expiresAt) {
+      otpStore.delete(key);
+    }
+  }
+};
+
+// Verify OTP from store
+const verifyStoredOTP = (mobile, otp) => {
+  cleanExpiredOTPs();
+  
+  const key = mobile;
+  const storedData = otpStore.get(key);
+  
+  if (!storedData) {
+    return { valid: false, reason: "OTP not found or expired" };
+  }
+  
+  if (storedData.otp !== otp) {
+    return { valid: false, reason: "Invalid OTP" };
+  }
+  
+  if (Date.now() > storedData.expiresAt) {
+    otpStore.delete(key);
+    return { valid: false, reason: "OTP expired" };
+  }
+  
+  // OTP verified successfully, remove it from store
+  otpStore.delete(key);
+  return { valid: true, purpose: storedData.purpose };
+};
+
 // ------------------------------
 // REGISTER: POST /api/users/request-otp/register
 // ------------------------------
@@ -33,6 +134,14 @@ export const requestRegisterOtp = async (req, res) => {
       return res.status(400).json({ message: "Mobile is required." });
     }
 
+    // Validate mobile number format (Indian)
+    const mobileRegex = /^[6-9]\d{9}$/;
+    if (!mobileRegex.test(mobile.replace(/^\+91|^0/, ""))) {
+      return res.status(400).json({ 
+        message: "Please enter a valid 10-digit Indian mobile number." 
+      });
+    }
+
     const existing = await User.findOne({ mobile }).lean();
 
     if (existing && !existing.isDeleted) {
@@ -42,10 +151,38 @@ export const requestRegisterOtp = async (req, res) => {
       });
     }
 
+    // Generate OTP
+    const otp = generateOTP();
+    const expiresAt = Date.now() + (OTP_EXPIRY_MINUTES * 60 * 1000);
+    
+    // Store OTP in memory
+    otpStore.set(mobile, {
+      otp,
+      expiresAt,
+      purpose: "register",
+      createdAt: new Date()
+    });
+
+    // Send OTP via SMS
+    const smsResult = await sendOTPViaSMS(mobile, otp);
+
+    if (!smsResult.success) {
+      console.warn(`Failed to send SMS to ${mobile}. OTP: ${otp}`);
+      // Still return success but log OTP for development
+      return res.json({
+        message: "OTP generated. SMS delivery failed (check logs for OTP).",
+        otp: process.env.NODE_ENV === "development" ? otp : undefined,
+        alreadyRegistered: false,
+        smsDelivered: false,
+        note: "In development mode, OTP is shown. In production, check SMS gateway."
+      });
+    }
+
     return res.json({
-      message: "OTP sent for registration (test mode).",
-      otp: FIXED_OTP,
+      message: "OTP sent successfully to your mobile number.",
       alreadyRegistered: false,
+      smsDelivered: true,
+      note: "OTP is valid for 10 minutes"
     });
   } catch (err) {
     console.error("requestRegisterOtp error:", err);
@@ -64,6 +201,14 @@ export const requestLoginOtp = async (req, res) => {
       return res.status(400).json({ message: "Mobile is required." });
     }
 
+    // Validate mobile number format
+    const mobileRegex = /^[6-9]\d{9}$/;
+    if (!mobileRegex.test(mobile.replace(/^\+91|^0/, ""))) {
+      return res.status(400).json({ 
+        message: "Please enter a valid 10-digit Indian mobile number." 
+      });
+    }
+
     const user = await User.findOne({ mobile }).lean();
 
     if (!user || user.isDeleted) {
@@ -79,10 +224,39 @@ export const requestLoginOtp = async (req, res) => {
       });
     }
 
+    // Generate OTP
+    const otp = generateOTP();
+    const expiresAt = Date.now() + (OTP_EXPIRY_MINUTES * 60 * 1000);
+    
+    // Store OTP in memory
+    otpStore.set(mobile, {
+      otp,
+      expiresAt,
+      purpose: "login",
+      createdAt: new Date(),
+      userId: user._id
+    });
+
+    // Send OTP via SMS
+    const smsResult = await sendOTPViaSMS(mobile, otp);
+
+    if (!smsResult.success) {
+      console.warn(`Failed to send SMS to ${mobile}. OTP: ${otp}`);
+      // Still return success but log OTP for development
+      return res.json({
+        message: "OTP generated. SMS delivery failed (check logs for OTP).",
+        otp: process.env.NODE_ENV === "development" ? otp : undefined,
+        needRegistration: false,
+        smsDelivered: false,
+        note: "In development mode, OTP is shown. In production, check SMS gateway."
+      });
+    }
+
     return res.json({
-      message: "OTP sent for login (test mode).",
-      otp: FIXED_OTP,
+      message: "OTP sent successfully to your mobile number.",
       needRegistration: false,
+      smsDelivered: true,
+      note: "OTP is valid for 10 minutes"
     });
   } catch (err) {
     console.error("requestLoginOtp error:", err);
@@ -101,11 +275,23 @@ export const verifyOtp = async (req, res) => {
     if (!mobile || !otp) {
       return res
         .status(400)
-        .json({ message: "Mobile and otp are required." });
+        .json({ message: "Mobile and OTP are required." });
     }
 
-    if (otp !== FIXED_OTP) {
-      return res.status(400).json({ message: "Invalid OTP." });
+    // Validate OTP format
+    if (!/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ message: "OTP must be 6 digits." });
+    }
+
+    // Verify OTP from store
+    const otpVerification = verifyStoredOTP(mobile, otp);
+    
+    if (!otpVerification.valid) {
+      return res.status(400).json({ 
+        message: otpVerification.reason === "OTP expired" 
+          ? "OTP has expired. Please request a new one." 
+          : "Invalid OTP. Please try again." 
+      });
     }
 
     let user = await User.findOne({ mobile });
@@ -113,7 +299,20 @@ export const verifyOtp = async (req, res) => {
     const isNewUser = !user;
 
     if (!user) {
+      // Create new user for registration
+      if (otpVerification.purpose !== "register") {
+        return res.status(400).json({ 
+          message: "Invalid OTP purpose. Please request registration OTP." 
+        });
+      }
       user = await User.create({ mobile });
+    } else {
+      // Existing user for login
+      if (otpVerification.purpose !== "login") {
+        return res.status(400).json({ 
+          message: "Invalid OTP purpose. Please request login OTP." 
+        });
+      }
     }
 
     if (user.isDeleted) {
@@ -154,6 +353,92 @@ export const verifyOtp = async (req, res) => {
     });
   } catch (err) {
     console.error("verifyOtp error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ------------------------------
+// RESEND OTP: POST /api/users/resend-otp
+// ------------------------------
+export const resendOtp = async (req, res) => {
+  try {
+    const mobile = (req.body.mobile || req.body.mobileNumber || "").trim();
+    const purpose = req.body.purpose || "login"; // "login" or "register"
+
+    if (!mobile) {
+      return res.status(400).json({ message: "Mobile is required." });
+    }
+
+    // Validate mobile number format
+    const mobileRegex = /^[6-9]\d{9}$/;
+    if (!mobileRegex.test(mobile.replace(/^\+91|^0/, ""))) {
+      return res.status(400).json({ 
+        message: "Please enter a valid 10-digit Indian mobile number." 
+      });
+    }
+
+    // Check if user exists for login purpose
+    if (purpose === "login") {
+      const user = await User.findOne({ mobile }).lean();
+      if (!user || user.isDeleted) {
+        return res.status(404).json({
+          message: "User not found. Please register first.",
+          needRegistration: true,
+        });
+      }
+      
+      if (user.isBlocked) {
+        return res.status(403).json({
+          message: "User is blocked by admin.",
+        });
+      }
+    }
+
+    // Check for registration purpose
+    if (purpose === "register") {
+      const existing = await User.findOne({ mobile }).lean();
+      if (existing && !existing.isDeleted) {
+        return res.status(409).json({
+          message: "This mobile is already registered. Please login instead.",
+          alreadyRegistered: true,
+        });
+      }
+    }
+
+    // Generate new OTP
+    const otp = generateOTP();
+    const expiresAt = Date.now() + (OTP_EXPIRY_MINUTES * 60 * 1000);
+    
+    // Store OTP in memory
+    otpStore.set(mobile, {
+      otp,
+      expiresAt,
+      purpose,
+      createdAt: new Date()
+    });
+
+    // Send OTP via SMS
+    const smsResult = await sendOTPViaSMS(mobile, otp);
+
+    if (!smsResult.success) {
+      console.warn(`Failed to send SMS to ${mobile}. OTP: ${otp}`);
+      return res.json({
+        message: "OTP generated. SMS delivery failed (check logs for OTP).",
+        otp: process.env.NODE_ENV === "development" ? otp : undefined,
+        smsDelivered: false,
+        purpose,
+        note: "In development mode, OTP is shown."
+      });
+    }
+
+    return res.json({
+      message: "OTP resent successfully to your mobile number.",
+      smsDelivered: true,
+      purpose,
+      note: "OTP is valid for 10 minutes"
+    });
+  } catch (err) {
+    console.error("resendOtp error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
