@@ -17,7 +17,7 @@ import { uploadUserFields } from "../config/cloudinary.js";
 const router = express.Router();
 
 // Public (OTP flow)
-router.post("/request-otp/register", requestRegisterOtp); // Register screen
+router.post("/request-otp", requestRegisterOtp); // Register screen
 router.post("/request-otp/login", requestLoginOtp);       // Login screen
 router.post("/verify-otp", verifyOtp);
 
