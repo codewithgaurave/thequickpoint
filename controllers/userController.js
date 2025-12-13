@@ -1,9 +1,8 @@
-// controllers/userController.js
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d"; // users ke liye long
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 const FIXED_OTP = "123456";
 
 if (!JWT_SECRET) {
@@ -43,10 +42,9 @@ export const requestRegisterOtp = async (req, res) => {
       });
     }
 
-    // real app: random OTP + SMS
     return res.json({
       message: "OTP sent for registration (test mode).",
-      otp: FIXED_OTP, // dev/testing
+      otp: FIXED_OTP,
       alreadyRegistered: false,
     });
   } catch (err) {
@@ -114,7 +112,6 @@ export const verifyOtp = async (req, res) => {
 
     const isNewUser = !user;
 
-    // if user not exist -> create minimal user (registration)
     if (!user) {
       user = await User.create({ mobile });
     }
@@ -162,13 +159,27 @@ export const verifyOtp = async (req, res) => {
 };
 
 // ------------------------------
-// GET /api/users/me  (user protected)
+// GET /api/users/:id/profile  (ID-based profile)
 // ------------------------------
-export const getMyProfile = async (req, res) => {
+export const getUserProfileById = async (req, res) => {
   try {
-    const user = await User.findById(req.user.sub).lean();
+    const userId = req.params.id;
+    
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required." });
+    }
+
+    const user = await User.findById(userId).lean();
+    
     if (!user || user.isDeleted) {
       return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if user is blocked
+    if (user.isBlocked) {
+      return res.status(403).json({ 
+        message: "This user account is blocked." 
+      });
     }
 
     return res.json({
@@ -193,16 +204,28 @@ export const getMyProfile = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getMyProfile error:", err);
+    console.error("getUserProfileById error:", err);
+    
+    // Handle invalid ObjectId format
+    if (err.name === 'CastError') {
+      return res.status(400).json({ message: "Invalid user ID format." });
+    }
+    
     return res.status(500).json({ message: "Server error" });
   }
 };
 
 // ------------------------------
-// PATCH /api/users/me  (user protected + file upload)
+// PATCH /api/users/:id/profile  (ID-based update)
 // ------------------------------
-export const updateMyProfile = async (req, res) => {
+export const updateUserProfileById = async (req, res) => {
   try {
+    const userId = req.params.id;
+    
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required." });
+    }
+
     const {
       fullName,
       email,
@@ -238,13 +261,20 @@ export const updateMyProfile = async (req, res) => {
       update.profileImageUrl = req.file.path;
     }
 
-    const user = await User.findByIdAndUpdate(req.user.sub, update, {
+    const user = await User.findByIdAndUpdate(userId, update, {
       new: true,
       runValidators: true,
     }).lean();
 
     if (!user || user.isDeleted) {
       return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if user is blocked
+    if (user.isBlocked) {
+      return res.status(403).json({ 
+        message: "This user account is blocked." 
+      });
     }
 
     return res.json({
@@ -268,17 +298,30 @@ export const updateMyProfile = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("updateMyProfile error:", err);
+    console.error("updateUserProfileById error:", err);
+    
+    // Handle invalid ObjectId format
+    if (err.name === 'CastError') {
+      return res.status(400).json({ message: "Invalid user ID format." });
+    }
+    
     return res.status(500).json({ message: "Server error" });
   }
 };
 
 // ------------------------------
-// POST /api/users/logout-all  (user protected)
+// POST /api/users/:id/logout-all  (ID-based logout all)
 // ------------------------------
-export const logoutAllUser = async (req, res) => {
+export const logoutAllUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.user.sub).select("+tokenVersion");
+    const userId = req.params.id;
+    
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required." });
+    }
+
+    const user = await User.findById(userId).select("+tokenVersion");
+    
     if (!user || user.isDeleted) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -290,7 +333,13 @@ export const logoutAllUser = async (req, res) => {
       message: "Logged out from all user sessions successfully.",
     });
   } catch (err) {
-    console.error("logoutAllUser error:", err);
+    console.error("logoutAllUserById error:", err);
+    
+    // Handle invalid ObjectId format
+    if (err.name === 'CastError') {
+      return res.status(400).json({ message: "Invalid user ID format." });
+    }
+    
     return res.status(500).json({ message: "Server error" });
   }
 };
