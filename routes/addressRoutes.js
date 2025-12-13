@@ -30,6 +30,6 @@ router.patch("/:id", updateAddress);
 router.patch("/:id/set-default", setDefaultAddress);
 
 // DELETE /api/addresses/:id - Delete address
-router.delete("/:id", deleteAddress);
+router.post("/:id", deleteAddress);
 
 export default router;
