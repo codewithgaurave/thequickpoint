@@ -1,9 +1,23 @@
+console.log("🔑 APP ID:", process.env.CASHFREE_APP_ID);
+console.log("🔐 SECRET:", process.env.CASHFREE_SECRET_KEY);
+console.log("🌐 BASE URL:", process.env.CASHFREE_BASE_URL);
+
+
 import axios from "axios";
 import Payment from "../models/Payment.js";
 import Order from "../models/Order.js";
 
-const getUserId = (req) =>
-  req.body.userId || req.query.userId || req.params.userId;
+
+const getUserId = (req) => {
+  return (
+    req?.body?.userId ||
+    req?.query?.userId ||
+    req?.params?.userId ||
+    null
+  );
+};
+
+
 
 // -------------------------------------------------
 // POST /api/payments/initiate
