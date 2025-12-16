@@ -97,7 +97,7 @@ export const initiatePayment = async (req, res) => {
       paymentSessionId: payment.paymentSessionId,
       amount,
       currency: "INR",
-      isPaymentReady: false,
+      isPaymentReady: true,
     });
 
   } catch (err) {
