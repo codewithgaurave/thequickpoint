@@ -799,6 +799,7 @@ export const updateProductForStore = async (req, res) => {
   }
 };
 
+
 // ---------- Delete product (soft) ----------
 // DELETE /api/products/:id  (admin)
 // export const deleteProduct = async (req, res) => {

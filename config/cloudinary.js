@@ -32,27 +32,19 @@ const userStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "society_users",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    resource_type: "image",
+    resource_type: "auto", // IMPORTANT: auto allows all file types
   },
 });
 
 const uploadUserFiles = multer({
   storage: userStorage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (req, file, cb) => {
-    if (ALLOWED_IMAGE_MIME.includes(file.mimetype)) return cb(null, true);
-    return cb(
-      new Error(
-        "Invalid file type. Only image files are allowed for profile photo."
-      ),
-      false
-    );
-  },
+  // fileFilter removed => all file types allowed
 });
 
 // single: profilePhoto
 const uploadUserFields = uploadUserFiles.single("profilePhoto");
+
 
 // -----------------------------------------------------
 // SLIDER IMAGE UPLOAD
