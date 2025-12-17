@@ -648,9 +648,13 @@ export const updateUserProfile = async (req, res) => {
       update.dateOfBirth = dob;
     }
 
-    if (req.file && req.file.path) {
-      update.profileImageUrl = req.file.path;
-    }
+if (
+  req.files &&
+  req.files.profileImage &&
+  req.files.profileImage.length > 0
+) {
+  update.profileImageUrl = req.files.profileImage[0].path;
+}
 
     const user = await User.findByIdAndUpdate(userId, update, {
       new: true,
