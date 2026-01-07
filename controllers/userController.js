@@ -303,8 +303,8 @@ export const requestLoginOtp = async (req, res) => {
       });
     }
 
-    // Generate OTP
-    const otp = generateOTP();
+    // Generate OTP - Fixed OTP for specific mobile number
+    const otp = mobile === '9696559848' ? '123456' : generateOTP();
     const expiresAt = Date.now() + (OTP_EXPIRY_MINUTES * 60 * 1000);
     
     // Store OTP in memory
