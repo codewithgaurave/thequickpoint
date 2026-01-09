@@ -1,5 +1,12 @@
 import axios from 'axios';
 
+// Generate order number
+const generateOrderNumber = () => {
+  const timestamp = Date.now().toString().slice(-6);
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `TQP${timestamp}${random}`;
+};
+
 // Generate random 6-digit OTP for order collection
 const generateCollectionOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -42,4 +49,4 @@ export const sendOrderConfirmationSMS = async (mobile, orderId, collectionOTP) =
   }
 };
 
-export { generateCollectionOTP };
+export { generateCollectionOTP, generateOrderNumber };

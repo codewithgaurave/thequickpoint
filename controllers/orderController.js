@@ -2,7 +2,7 @@ import Cart from "../models/Cart.js";
 import Order from "../models/Order.js";
 import Store from "../models/Store.js";
 import mongoose from "mongoose";
-import { sendOrderConfirmationSMS, generateCollectionOTP } from "../services/smsService.js";
+import { sendOrderConfirmationSMS, generateCollectionOTP, generateOrderNumber } from "../services/smsService.js";
 
 // Enhanced getUserIdFromReq function that supports both:
 // 1. Query parameters (public access)
@@ -176,8 +176,9 @@ export const checkoutFromCart = async (req, res) => {
 
     const totalDiscount = subtotal - grandTotal;
 
-    // Generate collection OTP
+    // Generate collection OTP and order number
     const collectionOTP = generateCollectionOTP();
+    const orderNumber = generateOrderNumber();
 
     const order = await Order.create({
       user: userId,
@@ -187,6 +188,7 @@ export const checkoutFromCart = async (req, res) => {
       totalDiscount,
       grandTotal,
       paymentMethod: paymentMethod || "cod",
+      orderNumber,
       collectionOTP,
       shippingAddress: {
         fullName: fullName || "",
@@ -243,7 +245,7 @@ export const checkoutFromCart = async (req, res) => {
     if (customerMobile) {
       smsResult = await sendOrderConfirmationSMS(
         customerMobile, 
-        order._id.toString().slice(-6).toUpperCase(), // Last 6 chars as order ID
+        populatedOrder.orderNumber, // Use proper order number
         collectionOTP
       );
     }
