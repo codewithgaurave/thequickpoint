@@ -2,6 +2,7 @@ import Cart from "../models/Cart.js";
 import Order from "../models/Order.js";
 import Store from "../models/Store.js";
 import mongoose from "mongoose";
+import { sendOrderConfirmationSMS, generateCollectionOTP } from "../services/smsService.js";
 
 // Enhanced getUserIdFromReq function that supports both:
 // 1. Query parameters (public access)
@@ -175,6 +176,9 @@ export const checkoutFromCart = async (req, res) => {
 
     const totalDiscount = subtotal - grandTotal;
 
+    // Generate collection OTP
+    const collectionOTP = generateCollectionOTP();
+
     const order = await Order.create({
       user: userId,
       store: orderStore, // null for global orders
@@ -183,6 +187,7 @@ export const checkoutFromCart = async (req, res) => {
       totalDiscount,
       grandTotal,
       paymentMethod: paymentMethod || "cod",
+      collectionOTP,
       shippingAddress: {
         fullName: fullName || "",
         mobile: mobile || "",
@@ -231,12 +236,29 @@ export const checkoutFromCart = async (req, res) => {
       .populate("user", "mobile email fullName")
       .lean();
 
+    // Send order confirmation SMS
+    const customerMobile = mobile || populatedOrder.user?.mobile;
+    let smsResult = null;
+    
+    if (customerMobile) {
+      smsResult = await sendOrderConfirmationSMS(
+        customerMobile, 
+        order._id.toString().slice(-6).toUpperCase(), // Last 6 chars as order ID
+        collectionOTP
+      );
+    }
+
     return res.status(201).json({
       success: true,
       message: orderStore 
         ? `Order placed for ${populatedOrder.store?.storeName || 'store'} successfully`
         : "Global order placed successfully",
       order: populatedOrder,
+      smsNotification: {
+        sent: smsResult?.success || false,
+        mobile: customerMobile,
+        collectionOTP: smsResult?.collectionOTP
+      }
     });
   } catch (err) {
     console.error("checkoutFromCart error:", err);

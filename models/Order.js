@@ -83,6 +83,8 @@ const orderSchema = new Schema(
 
     notes: { type: String, trim: true, default: "" },
 
+    collectionOTP: { type: String, required: true },
+
     isDeleted: { type: Boolean, default: false },
 
     createdAtIST: { type: String },
