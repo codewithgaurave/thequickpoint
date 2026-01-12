@@ -97,6 +97,7 @@ export const initiatePayment = async (req, res) => {
       message: "Payment initiated",
       paymentId: payment._id,
       cashfreeOrderId,
+      paymentSessionId: payment.paymentSessionId,
       cftoken: payment.paymentSessionId,
       amount,
       currency: "INR",
