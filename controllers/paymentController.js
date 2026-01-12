@@ -7,6 +7,8 @@ import axios from "axios";
 import Payment from "../models/Payment.js";
 import Order from "../models/Order.js";
 import Cart from "../models/Cart.js";
+import User from "../models/User.js";
+import { sendOrderConfirmationSMS } from "../services/smsService.js";
 
 
 const getUserId = (req) => {
@@ -153,6 +155,21 @@ export const getPaymentStatus = async (req, res) => {
             await Order.findByIdAndUpdate(payment.order, {
               paymentStatus: "paid",
             });
+
+            // ✅ SEND ORDER CONFIRMATION SMS
+            try {
+              const order = await Order.findById(payment.order).populate('user', 'mobile');
+              if (order && order.user && order.user.mobile) {
+                const smsResult = await sendOrderConfirmationSMS(
+                  order.user.mobile,
+                  order.orderNumber,
+                  order.collectionOTP
+                );
+                console.log("📱 Status check SMS sent:", smsResult.success ? "✅ Success" : "❌ Failed");
+              }
+            } catch (smsError) {
+              console.error("📱 Status check SMS Error:", smsError);
+            }
           }
         } else if (cfStatus === "CANCELLED" || cfStatus === "FAILED") {
           payment.status = "failed";
@@ -232,6 +249,21 @@ export const handlePaymentWebhook = async (req, res) => {
           await Order.findByIdAndUpdate(payment.order, {
             paymentStatus: "paid",
           });
+        }
+
+        // ✅ SEND ORDER CONFIRMATION SMS
+        try {
+          const order = await Order.findById(payment.order).populate('user', 'mobile');
+          if (order && order.user && order.user.mobile) {
+            const smsResult = await sendOrderConfirmationSMS(
+              order.user.mobile,
+              order.orderNumber,
+              order.collectionOTP
+            );
+            console.log("📱 Order SMS sent:", smsResult.success ? "✅ Success" : "❌ Failed");
+          }
+        } catch (smsError) {
+          console.error("📱 SMS Error:", smsError);
         }
 
         // ✅ NOW CLEAR CART AFTER SUCCESSFUL PAYMENT
@@ -328,6 +360,21 @@ export const verifyPayment = async (req, res) => {
         await Order.findByIdAndUpdate(payment.order, {
           paymentStatus: "paid",
         });
+      }
+
+      // ✅ SEND ORDER CONFIRMATION SMS
+      try {
+        const order = await Order.findById(payment.order).populate('user', 'mobile');
+        if (order && order.user && order.user.mobile) {
+          const smsResult = await sendOrderConfirmationSMS(
+            order.user.mobile,
+            order.orderNumber,
+            order.collectionOTP
+          );
+          console.log("📱 Manual verification SMS sent:", smsResult.success ? "✅ Success" : "❌ Failed");
+        }
+      } catch (smsError) {
+        console.error("📱 Manual verification SMS Error:", smsError);
       }
 
       // Clear cart

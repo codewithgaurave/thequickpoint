@@ -21,30 +21,37 @@ export const sendOrderConfirmationSMS = async (mobile, orderId, collectionOTP) =
     
     const smsUrl = 'http://sms.webzmedia.co.in/http-api.php';
     const params = {
-      username: 'Quickpoint',
-      password: 'Quickpoint123',
-      senderid: 'THQPNT',
+      username: process.env.SMS_USERNAME || 'Quickpoint',
+      password: process.env.SMS_PASSWORD || 'Quickpoint123',
+      senderid: process.env.SMS_SENDER_ID || 'THQPNT',
       route: '1',
-      number: `9836109633,9934993423,${cleanMobile}`,
+      number: `${process.env.SMS_ADMIN_NUMBERS || '9836109633,9934993423'},${cleanMobile}`,
       message: message,
-      templateid: '1107176258986874088'
+      templateid: process.env.SMS_TEMPLATE_ID || '1107176258986874088'
     };
+
+    console.log(`📱 Sending SMS to ${cleanMobile} with order ${orderId}`);
+    console.log(`📱 Message: ${message}`);
 
     const response = await axios.get(smsUrl, { params, timeout: 10000 });
     
-    console.log(`Order SMS sent to ${cleanMobile}. Response:`, response.data);
+    console.log(`📱 SMS Response:`, response.data);
     
     return {
       success: true,
       response: response.data,
-      collectionOTP
+      collectionOTP,
+      mobile: cleanMobile,
+      orderId
     };
   } catch (error) {
-    console.error(`Order SMS failed for ${mobile}:`, error.message);
+    console.error(`📱 SMS Error for ${mobile}:`, error.message);
     return {
       success: false,
       error: error.message,
-      collectionOTP
+      collectionOTP,
+      mobile,
+      orderId
     };
   }
 };
