@@ -69,7 +69,9 @@ export const initiatePayment = async (req, res) => {
         order_currency: "INR",
         customer_details: {
           customer_id: String(userId),
-          customer_phone: "9999999999",
+          customer_name: req.body.customerName || "Customer",
+          customer_email: req.body.customerEmail || "customer@email.com",
+          customer_phone: req.body.customerPhone || "9999999999",
         },
       },
       {
