@@ -44,7 +44,7 @@ const getUserIdFromReqWithValidation = (req) => {
 export const checkoutFromCart = async (req, res) => {
   try {
     const userId = getUserIdFromReqWithValidation(req);
-    const { storeId } = req.body; // Optional: if checking out from a specific store
+    const { storeId, paymentMethod } = req.body; // Optional: if checking out from a specific store
     
     if (!userId) {
       return res.status(400).json({ 
@@ -125,7 +125,6 @@ export const checkoutFromCart = async (req, res) => {
       latitude,
       longitude,
       accuracy,
-      paymentMethod,
       notes,
     } = req.body;
 
@@ -180,6 +179,9 @@ export const checkoutFromCart = async (req, res) => {
     const collectionOTP = generateCollectionOTP();
     const orderNumber = generateOrderNumber();
 
+    // Set payment status based on payment method
+    const paymentStatus = paymentMethod === "cod" ? "paid" : "pending";
+
     const order = await Order.create({
       user: userId,
       store: orderStore, // null for global orders
@@ -188,6 +190,7 @@ export const checkoutFromCart = async (req, res) => {
       totalDiscount,
       grandTotal,
       paymentMethod: paymentMethod || "cod",
+      paymentStatus,
       orderNumber,
       collectionOTP,
       shippingAddress: {
@@ -219,18 +222,22 @@ export const checkoutFromCart = async (req, res) => {
       notes: notes || "",
     });
 
-    // Remove checked out items from cart
-    if (storeId) {
-      // Remove only store items from cart
-      cart.items = cart.items.filter(item => 
-        !item.store || String(item.store._id) !== String(storeId)
-      );
-    } else {
-      // Remove only global items from cart
-      cart.items = cart.items.filter(item => item.store);
+    // ✅ ONLY CLEAR CART IF PAYMENT IS COD (immediate success)
+    // For online payments, cart will be cleared via webhook after payment success
+    if (paymentMethod === "cod") {
+      // Remove checked out items from cart
+      if (storeId) {
+        // Remove only store items from cart
+        cart.items = cart.items.filter(item => 
+          !item.store || String(item.store._id) !== String(storeId)
+        );
+      } else {
+        // Remove only global items from cart
+        cart.items = cart.items.filter(item => item.store);
+      }
+      
+      await cart.save();
     }
-    
-    await cart.save();
 
     const populatedOrder = await Order.findById(order._id)
       .populate("items.product", "name images unit store")
@@ -238,11 +245,11 @@ export const checkoutFromCart = async (req, res) => {
       .populate("user", "mobile email fullName")
       .lean();
 
-    // Send order confirmation SMS
+    // Send order confirmation SMS only for successful payments
     const customerMobile = mobile || populatedOrder.user?.mobile;
     let smsResult = null;
     
-    if (customerMobile) {
+    if (customerMobile && (paymentMethod === "cod" || paymentStatus === "paid")) {
       smsResult = await sendOrderConfirmationSMS(
         customerMobile, 
         populatedOrder.orderNumber, // Use proper order number
@@ -256,6 +263,7 @@ export const checkoutFromCart = async (req, res) => {
         ? `Order placed for ${populatedOrder.store?.storeName || 'store'} successfully`
         : "Global order placed successfully",
       order: populatedOrder,
+      paymentRequired: paymentMethod !== "cod" && paymentStatus === "pending",
       smsNotification: {
         sent: smsResult?.success || false,
         mobile: customerMobile,
