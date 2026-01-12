@@ -376,3 +376,78 @@ export const verifyPayment = async (req, res) => {
     return res.status(500).json({ message: "Payment verification failed" });
   }
 };
+
+// -------------------------------------------------
+// POST /api/payments/clear-cart/:paymentId
+// Manual cart clear for successful payments (testing)
+// -------------------------------------------------
+export const clearCartAfterPayment = async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const { paymentId } = req.params;
+
+    const payment = await Payment.findOne({
+      _id: paymentId,
+      user: userId,
+      isDeleted: false,
+    });
+
+    if (!payment) {
+      return res.status(404).json({ message: "Payment not found" });
+    }
+
+    if (payment.status !== "completed") {
+      return res.status(400).json({ message: "Payment not completed yet" });
+    }
+
+    // Clear cart
+    const cart = await Cart.findOne({
+      user: payment.user,
+      isDeleted: false,
+    });
+
+    if (!cart || cart.items.length === 0) {
+      return res.json({
+        message: "Cart is already empty",
+        cartCleared: false,
+      });
+    }
+
+    const order = await Order.findById(payment.order);
+    
+    if (order && order.store) {
+      // Remove only store items from cart
+      const originalCount = cart.items.length;
+      cart.items = cart.items.filter(item => 
+        !item.store || String(item.store) !== String(order.store)
+      );
+      const clearedCount = originalCount - cart.items.length;
+      
+      await cart.save();
+      
+      return res.json({
+        message: `Cart cleared successfully. Removed ${clearedCount} store items.`,
+        cartCleared: true,
+        itemsRemoved: clearedCount,
+        remainingItems: cart.items.length,
+      });
+    } else {
+      // Remove only global items from cart
+      const originalCount = cart.items.length;
+      cart.items = cart.items.filter(item => item.store);
+      const clearedCount = originalCount - cart.items.length;
+      
+      await cart.save();
+      
+      return res.json({
+        message: `Cart cleared successfully. Removed ${clearedCount} global items.`,
+        cartCleared: true,
+        itemsRemoved: clearedCount,
+        remainingItems: cart.items.length,
+      });
+    }
+  } catch (err) {
+    console.error("clearCartAfterPayment error:", err);
+    return res.status(500).json({ message: "Cart clear failed" });
+  }
+};

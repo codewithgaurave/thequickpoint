@@ -5,6 +5,7 @@ import {
   getMyPayments,
   handlePaymentWebhook,
   verifyPayment,
+  clearCartAfterPayment,
 } from "../controllers/paymentController.js";
 
 const router = express.Router();
@@ -12,6 +13,7 @@ const router = express.Router();
 router.post("/initiate", initiatePayment);
 router.get("/status/:paymentId", getPaymentStatus);
 router.post("/verify/:paymentId", verifyPayment);
+router.post("/clear-cart/:paymentId", clearCartAfterPayment);
 router.get("/my", getMyPayments);
 router.post("/webhook", handlePaymentWebhook);
 
