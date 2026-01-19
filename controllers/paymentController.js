@@ -204,10 +204,10 @@ export const initiatePayment = async (req, res) => {
 export const getPaymentStatus = async (req, res) => {
   try {
     const userId = getUserId(req);
-    const { paymentId } = req.params;
+    const { orderId } = req.params;
 
     const payment = await Payment.findOne({
-      _id: paymentId,
+      order: orderId,
       user: userId,
       isDeleted: false,
     });

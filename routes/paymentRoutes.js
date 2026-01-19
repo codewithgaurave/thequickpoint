@@ -68,7 +68,7 @@ router.get("/debug-cashfree", async (req, res) => {
     });
   }
 });
-router.get("/status/:paymentId", getPaymentStatus);
+router.get("/status/:orderId", getPaymentStatus);
 router.post("/verify/:paymentId", verifyPayment);
 router.post("/clear-cart/:paymentId", clearCartAfterPayment);
 router.get("/my", getMyPayments);
