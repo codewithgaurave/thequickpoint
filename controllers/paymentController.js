@@ -132,7 +132,6 @@ export const initiatePayment = async (req, res) => {
       paymentId: payment._id,
       cashfreeOrderId,
       order_token: cf.data.order_token,
-      cftoken: cf.data.order_token,
       payment_session_id: cf.data.payment_session_id,
       amount,
       currency: "INR",
