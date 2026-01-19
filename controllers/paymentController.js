@@ -69,6 +69,25 @@ export const initiatePayment = async (req, res) => {
     console.log("🔍 Amount:", amount);
 
     try {
+      console.log("🔍 Making Cashfree API call...");
+      console.log("🔍 URL:", `${process.env.CASHFREE_BASE_URL}/orders`);
+      console.log("🔍 Headers:", {
+        "x-client-id": process.env.CASHFREE_APP_ID ? `${process.env.CASHFREE_APP_ID.substring(0, 10)}...` : 'NOT SET',
+        "x-client-secret": process.env.CASHFREE_SECRET_KEY ? `${process.env.CASHFREE_SECRET_KEY.substring(0, 10)}...` : 'NOT SET',
+        "x-api-version": "2023-08-01"
+      });
+      console.log("🔍 Body:", {
+        order_id: cashfreeOrderId,
+        order_amount: amount,
+        order_currency: "INR",
+        customer_details: {
+          customer_id: String(userId),
+          customer_name: req.body.customerName || "Customer",
+          customer_email: req.body.customerEmail || "customer@email.com",
+          customer_phone: req.body.customerPhone || "9999999999",
+        }
+      });
+
       const cf = await axios.post(
         `${process.env.CASHFREE_BASE_URL}/orders`,
         {
@@ -92,25 +111,45 @@ export const initiatePayment = async (req, res) => {
         }
       );
 
-      console.log("🔍 Cashfree API Response:", JSON.stringify(cf.data, null, 2));
+      console.log("✅ Cashfree API Success!");
+      console.log("🔍 Status:", cf.status);
+      console.log("🔍 Raw Response:", JSON.stringify(cf.data, null, 2));
+      console.log("🔍 Response Keys:", Object.keys(cf.data));
+      console.log("🔍 Has order_token:", !!cf.data.order_token);
+      console.log("🔍 Has payment_session_id:", !!cf.data.payment_session_id);
       
       // Validate required fields in response
       if (!cf.data.order_token) {
         console.error("❌ Missing order_token in Cashfree response");
+        console.error("❌ Full response:", cf.data);
         throw new Error("Invalid Cashfree response: missing order_token");
       }
       
       if (!cf.data.payment_session_id) {
         console.error("❌ Missing payment_session_id in Cashfree response");
+        console.error("❌ Full response:", cf.data);
         throw new Error("Invalid Cashfree response: missing payment_session_id");
       }
       
     } catch (cfError) {
-      console.error("❌ Cashfree API Error:", cfError.response?.data || cfError.message);
+      console.error("❌ Cashfree API Error Details:");
+      console.error("❌ Status:", cfError.response?.status);
+      console.error("❌ Status Text:", cfError.response?.statusText);
+      console.error("❌ Response Data:", JSON.stringify(cfError.response?.data, null, 2));
+      console.error("❌ Request Config:", {
+        url: cfError.config?.url,
+        method: cfError.config?.method,
+        headers: cfError.config?.headers
+      });
+      console.error("❌ Error Message:", cfError.message);
+      
       if (cfError.response?.status === 401) {
-        throw new Error("Cashfree authentication failed. Check credentials.");
+        throw new Error("Cashfree authentication failed. Check APP_ID and SECRET_KEY.");
       } else if (cfError.response?.status === 400) {
-        throw new Error(`Cashfree validation error: ${cfError.response.data?.message || 'Invalid request'}`);
+        const errorMsg = cfError.response.data?.message || cfError.response.data?.error || 'Invalid request';
+        throw new Error(`Cashfree validation error: ${errorMsg}`);
+      } else if (cfError.response?.status === 403) {
+        throw new Error("Cashfree access forbidden. Check credentials and permissions.");
       } else {
         throw new Error(`Cashfree API error: ${cfError.message}`);
       }
