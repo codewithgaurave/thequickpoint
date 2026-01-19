@@ -193,7 +193,8 @@ export const initiatePayment = async (req, res) => {
     
     return res.status(500).json({ 
       message: errorMessage,
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      error: err.message,
+      details: err.response?.data
     });
   }
 };
