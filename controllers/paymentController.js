@@ -60,29 +60,61 @@ export const initiatePayment = async (req, res) => {
 
     // 🔥 ONLINE PAYMENT (CASHFREE)
     const cashfreeOrderId = `cf_${orderId || userId}_${Date.now()}`;
+    
+    console.log("🔍 Cashfree Configuration:");
+    console.log("🔍 APP ID:", process.env.CASHFREE_APP_ID ? `${process.env.CASHFREE_APP_ID.substring(0, 10)}...` : 'NOT SET');
+    console.log("🔍 SECRET:", process.env.CASHFREE_SECRET_KEY ? `${process.env.CASHFREE_SECRET_KEY.substring(0, 10)}...` : 'NOT SET');
+    console.log("🔍 BASE URL:", process.env.CASHFREE_BASE_URL);
+    console.log("🔍 Order ID:", cashfreeOrderId);
+    console.log("🔍 Amount:", amount);
 
-    const cf = await axios.post(
-      `${process.env.CASHFREE_BASE_URL}/orders`,
-      {
-        order_id: cashfreeOrderId,
-        order_amount: amount,
-        order_currency: "INR",
-        customer_details: {
-          customer_id: String(userId),
-          customer_name: req.body.customerName || "Customer",
-          customer_email: req.body.customerEmail || "customer@email.com",
-          customer_phone: req.body.customerPhone || "9999999999",
+    try {
+      const cf = await axios.post(
+        `${process.env.CASHFREE_BASE_URL}/orders`,
+        {
+          order_id: cashfreeOrderId,
+          order_amount: amount,
+          order_currency: "INR",
+          customer_details: {
+            customer_id: String(userId),
+            customer_name: req.body.customerName || "Customer",
+            customer_email: req.body.customerEmail || "customer@email.com",
+            customer_phone: req.body.customerPhone || "9999999999",
+          },
         },
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "x-client-id": process.env.CASHFREE_APP_ID,
-          "x-client-secret": process.env.CASHFREE_SECRET_KEY,
-          "x-api-version": "2023-08-01",
-        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "x-client-id": process.env.CASHFREE_APP_ID,
+            "x-client-secret": process.env.CASHFREE_SECRET_KEY,
+            "x-api-version": "2023-08-01",
+          },
+        }
+      );
+
+      console.log("🔍 Cashfree API Response:", JSON.stringify(cf.data, null, 2));
+      
+      // Validate required fields in response
+      if (!cf.data.order_token) {
+        console.error("❌ Missing order_token in Cashfree response");
+        throw new Error("Invalid Cashfree response: missing order_token");
       }
-    );
+      
+      if (!cf.data.payment_session_id) {
+        console.error("❌ Missing payment_session_id in Cashfree response");
+        throw new Error("Invalid Cashfree response: missing payment_session_id");
+      }
+      
+    } catch (cfError) {
+      console.error("❌ Cashfree API Error:", cfError.response?.data || cfError.message);
+      if (cfError.response?.status === 401) {
+        throw new Error("Cashfree authentication failed. Check credentials.");
+      } else if (cfError.response?.status === 400) {
+        throw new Error(`Cashfree validation error: ${cfError.response.data?.message || 'Invalid request'}`);
+      } else {
+        throw new Error(`Cashfree API error: ${cfError.message}`);
+      }
+    }
 
     const payment = await Payment.create({
       user: userId,
@@ -100,6 +132,7 @@ export const initiatePayment = async (req, res) => {
       paymentId: payment._id,
       cashfreeOrderId,
       order_token: cf.data.order_token,
+      cftoken: cf.data.order_token,
       payment_session_id: cf.data.payment_session_id,
       amount,
       currency: "INR",
@@ -107,8 +140,27 @@ export const initiatePayment = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("initiatePayment:", err.response?.data || err);
-    return res.status(500).json({ message: "Payment initiation failed" });
+    console.error("initiatePayment Error:", {
+      message: err.message,
+      response: err.response?.data,
+      status: err.response?.status,
+      stack: err.stack
+    });
+    
+    // Return more specific error messages
+    let errorMessage = "Payment initiation failed";
+    if (err.message.includes("Cashfree")) {
+      errorMessage = err.message;
+    } else if (err.response?.status === 401) {
+      errorMessage = "Authentication failed";
+    } else if (err.response?.status === 400) {
+      errorMessage = "Invalid payment request";
+    }
+    
+    return res.status(500).json({ 
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 };
 
@@ -424,6 +476,78 @@ export const verifyPayment = async (req, res) => {
   } catch (err) {
     console.error("verifyPayment error:", err.response?.data || err);
     return res.status(500).json({ message: "Payment verification failed" });
+  }
+};
+
+// -------------------------------------------------
+// GET /api/payments/test-cashfree
+// Test Cashfree configuration
+// -------------------------------------------------
+export const testCashfreeConfig = async (req, res) => {
+  try {
+    console.log("🧪 Testing Cashfree configuration...");
+    
+    // Check environment variables
+    const config = {
+      appId: process.env.CASHFREE_APP_ID ? 'SET' : 'NOT SET',
+      secretKey: process.env.CASHFREE_SECRET_KEY ? 'SET' : 'NOT SET',
+      baseUrl: process.env.CASHFREE_BASE_URL || 'NOT SET',
+    };
+    
+    console.log("🔧 Config:", config);
+    
+    if (!process.env.CASHFREE_APP_ID || !process.env.CASHFREE_SECRET_KEY) {
+      return res.status(500).json({
+        message: "Cashfree credentials not configured",
+        config
+      });
+    }
+    
+    // Test API call with minimal order
+    const testOrderId = `test_${Date.now()}`;
+    
+    const testResponse = await axios.post(
+      `${process.env.CASHFREE_BASE_URL}/orders`,
+      {
+        order_id: testOrderId,
+        order_amount: 1.00,
+        order_currency: "INR",
+        customer_details: {
+          customer_id: "test_customer",
+          customer_name: "Test Customer",
+          customer_email: "test@example.com",
+          customer_phone: "9999999999",
+        },
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-client-id": process.env.CASHFREE_APP_ID,
+          "x-client-secret": process.env.CASHFREE_SECRET_KEY,
+          "x-api-version": "2023-08-01",
+        },
+      }
+    );
+    
+    console.log("✅ Cashfree test successful");
+    
+    return res.json({
+      message: "Cashfree configuration is working",
+      config,
+      testOrderId,
+      hasOrderToken: !!testResponse.data.order_token,
+      hasPaymentSessionId: !!testResponse.data.payment_session_id,
+      responseKeys: Object.keys(testResponse.data)
+    });
+    
+  } catch (err) {
+    console.error("🧪 Cashfree test failed:", err.response?.data || err.message);
+    
+    return res.status(500).json({
+      message: "Cashfree test failed",
+      error: err.response?.data || err.message,
+      status: err.response?.status
+    });
   }
 };
 
