@@ -118,18 +118,14 @@ export const initiatePayment = async (req, res) => {
       console.log("🔍 Has order_token:", !!cf.data.order_token);
       console.log("🔍 Has payment_session_id:", !!cf.data.payment_session_id);
       
-      // Validate required fields in response
-      if (!cf.data.order_token) {
-        console.error("❌ Missing order_token in Cashfree response");
-        console.error("❌ Full response:", cf.data);
-        throw new Error("Invalid Cashfree response: missing order_token");
-      }
-      
+      // ✅ IMPORTANT: Cashfree uses payment_session_id as order_token
       if (!cf.data.payment_session_id) {
         console.error("❌ Missing payment_session_id in Cashfree response");
         console.error("❌ Full response:", cf.data);
         throw new Error("Invalid Cashfree response: missing payment_session_id");
       }
+      
+      console.log("✅ Using payment_session_id as order_token:", cf.data.payment_session_id);
       
     } catch (cfError) {
       console.error("❌ Cashfree API Error Details:");
@@ -170,7 +166,7 @@ export const initiatePayment = async (req, res) => {
       message: "Payment initiated",
       paymentId: payment._id,
       cashfreeOrderId,
-      order_token: cf.data.order_token,
+      order_token: cf.data.payment_session_id,
       payment_session_id: cf.data.payment_session_id,
       amount,
       currency: "INR",
