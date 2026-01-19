@@ -68,6 +68,7 @@ export const initiatePayment = async (req, res) => {
     console.log("🔍 Order ID:", cashfreeOrderId);
     console.log("🔍 Amount:", amount);
 
+    let cf;
     try {
       console.log("🔍 Making Cashfree API call...");
       console.log("🔍 URL:", `${process.env.CASHFREE_BASE_URL}/orders`);
@@ -88,7 +89,7 @@ export const initiatePayment = async (req, res) => {
         }
       });
 
-      const cf = await axios.post(
+      cf = await axios.post(
         `${process.env.CASHFREE_BASE_URL}/orders`,
         {
           order_id: cashfreeOrderId,
