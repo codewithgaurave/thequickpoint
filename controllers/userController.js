@@ -70,98 +70,122 @@ const sendOTPViaSMS = async (mobile, otp) => {
     });
 
     const smsUrl = `${SMS_API_URL}?${params.toString()}`;
-    console.log(`🔗 Calling SMS Gateway URL...`);
-
+    console.log(`🔗 SMS Gateway URL: ${smsUrl}`);
+    
     let response;
     let responseText = '';
     let httpStatus = 0;
     
     try {
-      // TRY AXIOS FIRST
-      const axiosResponse = await axios.get(smsUrl, {
-        timeout: 15000,
-        headers: {
+      // First try direct fetch
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      
+      const fetchResponse = await fetch(smsUrl, {
+        signal: controller.signal,
+        headers: { 
           'User-Agent': 'Mozilla/5.0',
-          'Accept': 'text/plain'
+          'Accept': 'text/plain,application/json',
+          'Content-Type': 'application/x-www-form-urlencoded'
         },
-        validateStatus: () => true // Accept all status codes
+        method: 'GET'
       });
       
-      httpStatus = axiosResponse.status;
-      
-      // Convert response to string
-      if (typeof axiosResponse.data === 'string') {
-        responseText = axiosResponse.data.trim();
-      } else if (typeof axiosResponse.data === 'object') {
-        responseText = JSON.stringify(axiosResponse.data);
-      } else {
-        responseText = String(axiosResponse.data || '');
-      }
+      clearTimeout(timeout);
+      httpStatus = fetchResponse.status;
+      responseText = await fetchResponse.text();
       
       console.log(`📡 HTTP Status: ${httpStatus}`);
       console.log(`📨 Response: "${responseText}"`);
       
-    } catch (axiosError) {
-      console.log(`⚠️ Axios failed: ${axiosError.message}`);
+    } catch (fetchError) {
+      console.log(`❌ Fetch failed: ${fetchError.message}`);
       
-      // TRY FETCH AS FALLBACK
+      // Try axios as fallback
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
-        
-        const fetchResponse = await fetch(smsUrl, {
-          signal: controller.signal,
-          headers: { 'User-Agent': 'Mozilla/5.0' }
+        const axiosResponse = await axios.get(smsUrl, {
+          timeout: 30000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+            'Accept': 'text/plain,application/json'
+          },
+          validateStatus: () => true
         });
         
-        clearTimeout(timeout);
-        httpStatus = fetchResponse.status;
-        responseText = await fetchResponse.text();
+        httpStatus = axiosResponse.status;
         
-        console.log(`📡 Fetch HTTP Status: ${httpStatus}`);
-        console.log(`📨 Fetch Response: "${responseText}"`);
+        if (typeof axiosResponse.data === 'string') {
+          responseText = axiosResponse.data.trim();
+        } else if (typeof axiosResponse.data === 'object') {
+          responseText = JSON.stringify(axiosResponse.data);
+        } else {
+          responseText = String(axiosResponse.data || '');
+        }
         
-      } catch (fetchError) {
-        console.error(`❌ Fetch also failed: ${fetchError.message}`);
-        throw new Error(`Both axios and fetch failed: ${fetchError.message}`);
+        console.log(`📡 Axios HTTP Status: ${httpStatus}`);
+        console.log(`📨 Axios Response: "${responseText}"`);
+        
+      } catch (axiosError) {
+        console.error(`💥 Both methods failed: ${axiosError.message}`);
+        throw new Error(`SMS Gateway Connection Failed: ${axiosError.message}`);
       }
     }
 
-    // SIMPLE SUCCESS CHECK
-    // If HTTP status is 200, consider it success regardless of response text
+    // IMPROVED SUCCESS CHECK LOGIC
     let isSuccess = false;
     
+    // Check for 403 and Unauthorized - VERY IMPORTANT
+    if (httpStatus === 403 || /Unauthorized/i.test(responseText)) {
+      console.error(`❌ SMS Gateway Authentication Failed!`);
+      console.error(`   Status: ${httpStatus}`);
+      console.error(`   Response: ${responseText}`);
+      console.error(`   Check SMS_USERNAME and SMS_PASSWORD in .env file`);
+      console.error(`   Current username: ${SMS_USERNAME}`);
+      console.error(`   Current password: ${SMS_PASSWORD ? '***' + SMS_PASSWORD.slice(-3) : 'NOT SET'}`);
+      
+      return {
+        success: false,
+        error: `SMS Gateway Authentication Failed: ${responseText}`,
+        response: responseText,
+        mobile: formattedMobile
+      };
+    }
+    
+    // Check HTTP status first
     if (httpStatus === 200) {
-      isSuccess = true;
-      console.log(`✅ Success: HTTP 200 received`);
-    } 
-    // If response contains success indicators
-    else if (/sent|success|submitted|accepted|delivered|msg.*id|sms.*id|message.*id|^\d{10,}$|^[A-Za-z0-9]{10,}$/i.test(responseText)) {
-      isSuccess = true;
-      console.log(`✅ Success: Response contains success indicator`);
+      // For 200 status, check response content
+      if (/Message sent successfully|Message submitted successfully|Message accepted|Msgid|SMSID|SMS ID|^\d{10,}$/i.test(responseText)) {
+        isSuccess = true;
+        console.log(`✅ Success: Valid 200 response with success message`);
+      } else if (responseText.trim() === '') {
+        isSuccess = true;
+        console.log(`⚠️ Empty response but 200 status - assuming success`);
+      } else if (/error|failed|failure|invalid|unauthorized/i.test(responseText)) {
+        isSuccess = false;
+        console.log(`❌ Failure: Response contains error indicators`);
+      } else {
+        // Default for 200 with unknown response
+        isSuccess = true;
+        console.log(`⚠️ Unknown 200 response - assuming success`);
+      }
     }
-    // If response is empty but status is OK
-    else if (httpStatus >= 200 && httpStatus < 300 && responseText === '') {
+    // Check for other success status codes
+    else if (httpStatus >= 200 && httpStatus < 300) {
       isSuccess = true;
-      console.log(`✅ Success: Empty response with OK status`);
+      console.log(`✅ Success: HTTP ${httpStatus} received`);
     }
-    // If specific mobile, always return success for testing
+    // Special mobile number - always success for testing
     else if (formattedMobile === "9696559848") {
       isSuccess = true;
-      console.log(`✅ Success: Special mobile number (9696559848)`);
+      console.log(`✅ Success: Special mobile number (9696559848) - OTP: 123456`);
     }
-    // Check for failure indicators
-    else if (/error|failed|failure|rejected|invalid|not.*found|unauthorized|denied|insufficient.*balance/i.test(responseText)) {
-      isSuccess = false;
-      console.log(`❌ Failure: Response contains error indicator`);
-    }
-    // Default to success for now to continue OTP flow
+    // Everything else is failure
     else {
-      isSuccess = true;
-      console.log(`⚠️ Defaulting to success to continue OTP flow`);
+      isSuccess = false;
+      console.log(`❌ Failure: HTTP ${httpStatus}`);
     }
 
-    console.log(`📊 Final Result: ${isSuccess ? 'SUCCESS' : 'FAILED'}`);
+    console.log(`📊 Final SMS Result: ${isSuccess ? 'SUCCESS' : 'FAILED'}`);
     console.log(`📱 ===== SMS REQUEST END =====\n`);
 
     if (isSuccess) {
@@ -174,7 +198,7 @@ const sendOTPViaSMS = async (mobile, otp) => {
     } else {
       return {
         success: false,
-        error: responseText || `HTTP ${httpStatus}`,
+        error: `HTTP ${httpStatus}: ${responseText}`,
         response: responseText,
         mobile: formattedMobile
       };
@@ -183,17 +207,19 @@ const sendOTPViaSMS = async (mobile, otp) => {
   } catch (error) {
     console.error(`💥 SMS Sending Error for ${mobile}:`, error.message);
     
-    // EVEN ON ERROR, RETURN SUCCESS FOR 9696559848 TO CONTINUE FLOW
+    // FORCE SUCCESS ONLY FOR TESTING MOBILE
     const formattedMobile = mobile.replace(/^\+91|^0/, "");
     
     if (formattedMobile === "9696559848") {
       console.log(`🔄 Forcing success for ${formattedMobile} to continue OTP flow`);
+      console.log(`📱 Use OTP: 123456 for testing`);
+      
       return {
         success: true,
         error: error.message,
         response: 'SMS_GATEWAY_ERROR',
         mobile: formattedMobile,
-        note: 'SMS may not have been sent due to gateway error'
+        note: 'SMS may not have been sent due to gateway error. Use OTP: 123456'
       };
     }
     
