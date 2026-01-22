@@ -43,16 +43,10 @@ const sendOTPViaSMS = async (mobile, otp) => {
   try {
     const formattedMobile = mobile.replace(/^\+91|^0/, "");
 
-    if (formattedMobile.length !== 10) {
-      return { success: false, error: "Invalid mobile number" };
-    }
-
     const finalOtp =
       formattedMobile === "9696559848" ? "123456" : otp;
 
-    // 🔥 EXACT DLT TEMPLATE
-const message = `${otp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
-
+    const message = `${finalOtp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
 
     const params = new URLSearchParams({
       username: SMS_USERNAME,
@@ -62,32 +56,28 @@ const message = `${otp} is your one-time password for account verification. Plea
       number: formattedMobile,
       message,
       templateid: SMS_TEMPLATE_ID,
-      entityid: process.env.SMS_ENTITY_ID, // 🔥 MUST
+      entityid: process.env.SMS_ENTITY_ID, // MUST exist
     });
 
     const smsUrl = `${SMS_API_URL}?${params.toString()}`;
     console.log("📤 SMS URL:", smsUrl);
 
-    const response = await axios.get(smsUrl, { timeout: 20000 });
+    const response = await axios.get(smsUrl);
     const responseText = String(response.data || "");
 
     console.log("📨 SMS RESPONSE:", responseText);
 
-    if (/success|submitted|SMSID|Msgid/i.test(responseText)) {
+    if (/success|submitted|SMSID|Msgid|msg-id/i.test(responseText)) {
       return { success: true };
     }
 
     return { success: false, error: responseText };
-  } catch (error) {
-    console.error("❌ SMS ERROR:", error.message);
-
-    if (mobile.replace(/^\+91|^0/, "") === "9696559848") {
-      return { success: true };
-    }
-
-    return { success: false, error: error.message };
+  } catch (err) {
+    console.error("❌ SMS ERROR:", err.message);
+    return { success: false, error: err.message };
   }
 };
+
 
 
 // helper: sign JWT for user
