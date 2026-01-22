@@ -73,13 +73,15 @@ const sendOTPViaSMS = async (mobile, otp) => {
     const responseText = String(response.data || '').trim();
     
     // Common success responses from Indian SMS gateways
-    const successPatterns = [
-      /Sent Successfully/i,
-      /success/i,
-      /Message Submitted/i,
-      /Message accepted/i,
-      /^\d+$/ // Some gateways return just message ID as number
-    ];
+const successPatterns = [
+  /Sent Successfully/i,
+  /success/i,
+  /Message Submitted/i,
+  /Message accepted/i,
+  /msg-id/i,                 // ✅ IMPORTANT
+  /^[A-Za-z0-9+/=]{8,}$/     // ✅ base64 message id
+];
+
     
     let isSuccess = false;
     let messageId = null;
