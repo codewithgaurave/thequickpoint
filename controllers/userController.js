@@ -41,23 +41,17 @@ const generateOTP = () => {
 // helper: send OTP via SMS - ULTIMATE FIXED VERSION
 const sendOTPViaSMS = async (mobile, otp) => {
   try {
-    // Format mobile number
-    let formattedMobile = mobile.replace(/^\+91|^0/, "");
-    
-    // Ensure mobile number is 10 digits
+    const formattedMobile = mobile.replace(/^\+91|^0/, "");
+
     if (formattedMobile.length !== 10) {
-      console.error(`Invalid mobile number length: ${formattedMobile}`);
       return { success: false, error: "Invalid mobile number" };
     }
 
-    // ALWAYS USE 123456 FOR SPECIFIC MOBILE NUMBER
-    const finalOtp = formattedMobile === "9696559848" ? "123456" : otp;
-    
-    console.log(`\n📱 ===== SMS REQUEST =====`);
-    console.log(`📞 Mobile: ${formattedMobile}`);
-    console.log(`🔑 OTP to send: ${finalOtp}`);
+    const finalOtp =
+      formattedMobile === "9696559848" ? "123456" : otp;
 
-    const message = `${finalOtp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
+    // 🔥 EXACT DLT TEMPLATE
+    const message = `${finalOtp} is your one-time password for account verification.`;
 
     const params = new URLSearchParams({
       username: SMS_USERNAME,
@@ -65,172 +59,35 @@ const sendOTPViaSMS = async (mobile, otp) => {
       senderid: SMS_SENDER_ID,
       route: SMS_ROUTE,
       number: formattedMobile,
-      message: message,
+      message,
       templateid: SMS_TEMPLATE_ID,
+      entityid: process.env.SMS_ENTITY_ID, // 🔥 MUST
     });
 
     const smsUrl = `${SMS_API_URL}?${params.toString()}`;
-    console.log(`🔗 SMS Gateway URL: ${smsUrl}`);
-    
-    let response;
-    let responseText = '';
-    let httpStatus = 0;
-    
-    try {
-      // First try direct fetch
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
-      
-      const fetchResponse = await fetch(smsUrl, {
-        signal: controller.signal,
-        headers: { 
-          'User-Agent': 'Mozilla/5.0',
-          'Accept': 'text/plain,application/json',
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        method: 'GET'
-      });
-      
-      clearTimeout(timeout);
-      httpStatus = fetchResponse.status;
-      responseText = await fetchResponse.text();
-      
-      console.log(`📡 HTTP Status: ${httpStatus}`);
-      console.log(`📨 Response: "${responseText}"`);
-      
-    } catch (fetchError) {
-      console.log(`❌ Fetch failed: ${fetchError.message}`);
-      
-      // Try axios as fallback
-      try {
-        const axiosResponse = await axios.get(smsUrl, {
-          timeout: 30000,
-          headers: {
-            'User-Agent': 'Mozilla/5.0',
-            'Accept': 'text/plain,application/json'
-          },
-          validateStatus: () => true
-        });
-        
-        httpStatus = axiosResponse.status;
-        
-        if (typeof axiosResponse.data === 'string') {
-          responseText = axiosResponse.data.trim();
-        } else if (typeof axiosResponse.data === 'object') {
-          responseText = JSON.stringify(axiosResponse.data);
-        } else {
-          responseText = String(axiosResponse.data || '');
-        }
-        
-        console.log(`📡 Axios HTTP Status: ${httpStatus}`);
-        console.log(`📨 Axios Response: "${responseText}"`);
-        
-      } catch (axiosError) {
-        console.error(`💥 Both methods failed: ${axiosError.message}`);
-        throw new Error(`SMS Gateway Connection Failed: ${axiosError.message}`);
-      }
+    console.log("📤 SMS URL:", smsUrl);
+
+    const response = await axios.get(smsUrl, { timeout: 20000 });
+    const responseText = String(response.data || "");
+
+    console.log("📨 SMS RESPONSE:", responseText);
+
+    if (/success|submitted|SMSID|Msgid/i.test(responseText)) {
+      return { success: true };
     }
 
-    // IMPROVED SUCCESS CHECK LOGIC
-    let isSuccess = false;
-    
-    // Check for 403 and Unauthorized - VERY IMPORTANT
-    if (httpStatus === 403 || /Unauthorized/i.test(responseText)) {
-      console.error(`❌ SMS Gateway Authentication Failed!`);
-      console.error(`   Status: ${httpStatus}`);
-      console.error(`   Response: ${responseText}`);
-      console.error(`   Check SMS_USERNAME and SMS_PASSWORD in .env file`);
-      console.error(`   Current username: ${SMS_USERNAME}`);
-      console.error(`   Current password: ${SMS_PASSWORD ? '***' + SMS_PASSWORD.slice(-3) : 'NOT SET'}`);
-      
-      return {
-        success: false,
-        error: `SMS Gateway Authentication Failed: ${responseText}`,
-        response: responseText,
-        mobile: formattedMobile
-      };
-    }
-    
-    // Check HTTP status first
-    if (httpStatus === 200) {
-      // For 200 status, check response content
-      if (/Message sent successfully|Message submitted successfully|Message accepted|Msgid|SMSID|SMS ID|^\d{10,}$/i.test(responseText)) {
-        isSuccess = true;
-        console.log(`✅ Success: Valid 200 response with success message`);
-      } else if (responseText.trim() === '') {
-        isSuccess = true;
-        console.log(`⚠️ Empty response but 200 status - assuming success`);
-      } else if (/error|failed|failure|invalid|unauthorized/i.test(responseText)) {
-        isSuccess = false;
-        console.log(`❌ Failure: Response contains error indicators`);
-      } else {
-        // Default for 200 with unknown response
-        isSuccess = true;
-        console.log(`⚠️ Unknown 200 response - assuming success`);
-      }
-    }
-    // Check for other success status codes
-    else if (httpStatus >= 200 && httpStatus < 300) {
-      isSuccess = true;
-      console.log(`✅ Success: HTTP ${httpStatus} received`);
-    }
-    // Special mobile number - always success for testing
-    else if (formattedMobile === "9696559848") {
-      isSuccess = true;
-      console.log(`✅ Success: Special mobile number (9696559848) - OTP: 123456`);
-    }
-    // Everything else is failure
-    else {
-      isSuccess = false;
-      console.log(`❌ Failure: HTTP ${httpStatus}`);
-    }
-
-    console.log(`📊 Final SMS Result: ${isSuccess ? 'SUCCESS' : 'FAILED'}`);
-    console.log(`📱 ===== SMS REQUEST END =====\n`);
-
-    if (isSuccess) {
-      return {
-        success: true,
-        messageId: `SMS_${Date.now()}_${formattedMobile}`,
-        response: responseText,
-        mobile: formattedMobile
-      };
-    } else {
-      return {
-        success: false,
-        error: `HTTP ${httpStatus}: ${responseText}`,
-        response: responseText,
-        mobile: formattedMobile
-      };
-    }
-    
+    return { success: false, error: responseText };
   } catch (error) {
-    console.error(`💥 SMS Sending Error for ${mobile}:`, error.message);
-    
-    // FORCE SUCCESS ONLY FOR TESTING MOBILE
-    const formattedMobile = mobile.replace(/^\+91|^0/, "");
-    
-    if (formattedMobile === "9696559848") {
-      console.log(`🔄 Forcing success for ${formattedMobile} to continue OTP flow`);
-      console.log(`📱 Use OTP: 123456 for testing`);
-      
-      return {
-        success: true,
-        error: error.message,
-        response: 'SMS_GATEWAY_ERROR',
-        mobile: formattedMobile,
-        note: 'SMS may not have been sent due to gateway error. Use OTP: 123456'
-      };
+    console.error("❌ SMS ERROR:", error.message);
+
+    if (mobile.replace(/^\+91|^0/, "") === "9696559848") {
+      return { success: true };
     }
-    
-    return {
-      success: false,
-      error: error.message,
-      response: 'SMS_GATEWAY_ERROR',
-      mobile: formattedMobile
-    };
+
+    return { success: false, error: error.message };
   }
 };
+
 
 // helper: sign JWT for user
 const signUserJwt = (user) =>
