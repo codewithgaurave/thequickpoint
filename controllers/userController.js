@@ -23,7 +23,9 @@ if (!JWT_SECRET) {
 }
 
 if (!SMS_USERNAME || !SMS_PASSWORD) {
-  console.warn("⚠️  SMS credentials not configured. OTPs will be logged but not sent.");
+  console.warn(
+    "⚠️  SMS credentials not configured. OTPs will be logged but not sent.",
+  );
 }
 
 // helper: generate random OTP
@@ -37,19 +39,20 @@ const generateOTP = () => {
 };
 
 // helper: send OTP via SMS
+// helper: send OTP via SMS
 const sendOTPViaSMS = async (mobile, otp) => {
   try {
     // Format mobile number (remove +91 or 0 prefix if present)
     let formattedMobile = mobile.replace(/^\+91|^0/, "");
-    
+
     // Ensure mobile number is 10 digits
     if (formattedMobile.length !== 10) {
       console.error(`Invalid mobile number length: ${formattedMobile}`);
       return { success: false, error: "Invalid mobile number" };
     }
-    
+
     const message = `${otp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
-    
+
     const params = new URLSearchParams({
       username: SMS_USERNAME,
       password: SMS_PASSWORD,
@@ -57,88 +60,190 @@ const sendOTPViaSMS = async (mobile, otp) => {
       route: SMS_ROUTE,
       number: formattedMobile,
       message: message,
-      templateid: SMS_TEMPLATE_ID
+      templateid: SMS_TEMPLATE_ID,
     });
 
-    console.log(`Sending SMS to ${formattedMobile}...`);
-    
-    const response = await axios.get(`${SMS_API_URL}?${params.toString()}`, {
-      timeout: 10000 // 10 second timeout
-    });
-    
-    console.log(`SMS API Response for ${mobile}:`, response.data);
-    
-    // Check if SMS was sent successfully
-    // Check various success patterns
-    const responseText = String(response.data || '').trim();
-    
-    // Common success responses from Indian SMS gateways
-const successPatterns = [
-  /Sent Successfully/i,
-  /success/i,
-  /Message Submitted/i,
-  /Message accepted/i,
-  /msg-id/i,                 // ✅ IMPORTANT
-  /^[A-Za-z0-9+/=]{8,}$/     // ✅ base64 message id
-];
+    const smsUrl = `${SMS_API_URL}?${params.toString()}`;
+    console.log(`📱 Sending SMS to ${formattedMobile}...`);
+    console.log(`🔗 SMS URL: ${smsUrl}`);
 
-    
-    let isSuccess = false;
-    let messageId = null;
-    
-    // Check for success patterns
-    for (const pattern of successPatterns) {
-      if (pattern.test(responseText)) {
-        isSuccess = true;
-        
-        // Extract message ID if available
-        const idMatch = responseText.match(/\d{10,}/);
-        if (idMatch) {
-          messageId = idMatch[0];
+    // Try different approaches if first one fails
+    let response;
+    try {
+      // First try with axios
+      response = await axios.get(smsUrl, {
+        timeout: 15000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': '*/*'
         }
-        break;
+      });
+    } catch (axiosError) {
+      console.log("Axios request failed, trying with fetch...");
+      // If axios fails, try with fetch
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      
+      try {
+        const fetchResponse = await fetch(smsUrl, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0'
+          }
+        });
+        clearTimeout(timeoutId);
+        
+        if (fetchResponse.ok) {
+          const text = await fetchResponse.text();
+          response = { data: text, status: fetchResponse.status };
+        } else {
+          throw new Error(`Fetch failed with status: ${fetchResponse.status}`);
+        }
+      } catch (fetchError) {
+        console.error("Fetch also failed:", fetchError.message);
+        throw axiosError; // Throw the original error
       }
     }
+
+    console.log(`📡 SMS API Status: ${response.status}`);
+    console.log(`📨 SMS API Response:`, response.data);
+
+    // Convert response to string
+    const responseText = String(response.data || "").trim();
     
-    // If response is a long number (likely message ID), consider it success
-    if (!isSuccess && /^\d{10,}$/.test(responseText)) {
-      isSuccess = true;
-      messageId = responseText;
+    // Check various success indicators
+    const successIndicators = [
+      // Status codes
+      response.status === 200,
+      response.status === 201,
+      
+      // Text patterns (case insensitive)
+      /sent/i.test(responseText),
+      /success/i.test(responseText),
+      /submitted/i.test(responseText),
+      /accepted/i.test(responseText),
+      /delivered/i.test(responseText),
+      /msg.*id/i.test(responseText),
+      /sms.*id/i.test(responseText),
+      /message.*id/i.test(responseText),
+      /^\d{10,}$/.test(responseText), // Just numbers (message ID)
+      /^[A-Za-z0-9+/=]{8,}$/.test(responseText), // Base64 like
+      responseText === "", // Some gateways return empty on success
+      responseText === "OK",
+      responseText === "SUCCESS",
+      /^1701/.test(responseText), // Common success code
+      /^1702/.test(responseText) // Another common success code
+    ];
+
+    const isSuccess = successIndicators.some(indicator => indicator === true);
+    
+    // Check for failure indicators
+    const failureIndicators = [
+      /error/i.test(responseText),
+      /failed/i.test(responseText),
+      /failure/i.test(responseText),
+      /rejected/i.test(responseText),
+      /invalid/i.test(responseText),
+      /not.*found/i.test(responseText),
+      /unauthorized/i.test(responseText),
+      /denied/i.test(responseText),
+      /insufficient/i.test(responseText),
+      /balance/i.test(responseText),
+      /expired/i.test(responseText),
+      /suspended/i.test(responseText),
+      /^170[45]/.test(responseText), // Common error codes
+      /^1706/.test(responseText),
+      /^1707/.test(responseText)
+    ];
+
+    const hasFailure = failureIndicators.some(indicator => indicator === true);
+
+    // Final decision
+    let finalSuccess = isSuccess && !hasFailure;
+    
+    // Extract message ID if possible
+    let messageId = null;
+    if (finalSuccess) {
+      // Try to find message ID in response
+      const idMatch = responseText.match(/\d{10,}/) || 
+                     responseText.match(/[A-Za-z0-9]{10,}/) ||
+                     responseText.match(/ID[:\s]*([A-Za-z0-9]+)/i);
+      
+      if (idMatch) {
+        messageId = idMatch[0] || idMatch[1];
+      } else if (responseText.length > 15 && !/\s/.test(responseText)) {
+        // If it's a long string without spaces, it might be the message ID
+        messageId = responseText;
+      }
     }
-    
-    if (isSuccess) {
-      console.log(`✅ SMS sent successfully to ${mobile}. Message ID: ${messageId || 'N/A'}`);
-      return { 
-        success: true, 
+
+    if (finalSuccess) {
+      console.log(`✅ SMS sent successfully to ${formattedMobile}`);
+      console.log(`📝 Message ID: ${messageId || "Not provided"}`);
+      console.log(`📋 Response: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`);
+      
+      return {
+        success: true,
         messageId: messageId,
-        response: responseText 
+        response: responseText,
+        mobile: formattedMobile
       };
     } else {
-      console.error(`❌ SMS failed for ${mobile}. Response:`, responseText);
-      return { 
-        success: false, 
-        error: responseText || "Unknown error",
-        response: responseText 
+      console.error(`❌ SMS failed for ${formattedMobile}`);
+      console.error(`❌ Response: ${responseText}`);
+      
+      // Try to get error message
+      let errorMsg = "SMS sending failed";
+      if (responseText) {
+        if (responseText.length < 200) {
+          errorMsg = responseText;
+        } else {
+          errorMsg = responseText.substring(0, 150) + "...";
+        }
+      }
+      
+      return {
+        success: false,
+        error: errorMsg,
+        response: responseText,
+        mobile: formattedMobile
       };
     }
   } catch (error) {
-    console.error("Error sending SMS:", error.message);
+    console.error("💥 Error sending SMS:");
+    console.error("📞 Mobile:", mobile);
+    console.error("🔑 OTP:", otp);
+    console.error("📛 Error name:", error.name);
+    console.error("📝 Error message:", error.message);
     
-    // More detailed error logging
-    if (error.response) {
-      // The request was made and the server responded with a status code
-      console.error("SMS Gateway Response Error:", error.response.data);
-      console.error("Status Code:", error.response.status);
-      console.error("Headers:", error.response.headers);
-    } else if (error.request) {
-      // The request was made but no response was received
-      console.error("No response received from SMS gateway");
+    if (error.code) {
+      console.error("🔢 Error code:", error.code);
     }
     
-    return { 
-      success: false, 
-      error: error.message,
-      details: error.response?.data 
+    if (error.response) {
+      console.error("📡 Response status:", error.response.status);
+      console.error("📄 Response data:", error.response.data);
+      console.error("📋 Response headers:", error.response.headers);
+    } else if (error.request) {
+      console.error("🚫 No response received. Request details:");
+      console.error("🔗 URL:", error.config?.url);
+    }
+    
+    // Network errors
+    if (error.message.includes("ENOTFOUND") || error.message.includes("ECONNREFUSED")) {
+      console.error("🌐 Network error: Cannot connect to SMS gateway");
+    }
+    
+    if (error.message.includes("timeout")) {
+      console.error("⏰ Timeout: SMS gateway took too long to respond");
+    }
+    
+    return {
+      success: false,
+      error: error.message || "Unknown error",
+      details: error.response?.data || "No response from server",
+      mobile: mobile.replace(/^\+91|^0/, "")
     };
   }
 };
@@ -153,7 +258,7 @@ const signUserJwt = (user) =>
       tv: user.tokenVersion,
     },
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
+    { expiresIn: JWT_EXPIRES_IN },
   );
 
 // In-memory OTP store (in production, use Redis or database)
@@ -172,23 +277,23 @@ const cleanExpiredOTPs = () => {
 // Verify OTP from store
 const verifyStoredOTP = (mobile, otp) => {
   cleanExpiredOTPs();
-  
+
   const key = mobile;
   const storedData = otpStore.get(key);
-  
+
   if (!storedData) {
     return { valid: false, reason: "OTP not found or expired" };
   }
-  
+
   if (storedData.otp !== otp) {
     return { valid: false, reason: "Invalid OTP" };
   }
-  
+
   if (Date.now() > storedData.expiresAt) {
     otpStore.delete(key);
     return { valid: false, reason: "OTP expired" };
   }
-  
+
   // OTP verified successfully, remove it from store
   otpStore.delete(key);
   return { valid: true, purpose: storedData.purpose };
@@ -208,8 +313,8 @@ export const requestRegisterOtp = async (req, res) => {
     // Validate mobile number format (Indian)
     const mobileRegex = /^[6-9]\d{9}$/;
     if (!mobileRegex.test(mobile.replace(/^\+91|^0/, ""))) {
-      return res.status(400).json({ 
-        message: "Please enter a valid 10-digit Indian mobile number." 
+      return res.status(400).json({
+        message: "Please enter a valid 10-digit Indian mobile number.",
       });
     }
 
@@ -224,45 +329,48 @@ export const requestRegisterOtp = async (req, res) => {
 
     // Generate OTP
     const otp = generateOTP();
-    const expiresAt = Date.now() + (OTP_EXPIRY_MINUTES * 60 * 1000);
-    
+    const expiresAt = Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000;
+
     // Store OTP in memory
     otpStore.set(mobile, {
       otp,
       expiresAt,
       purpose: "register",
-      createdAt: new Date()
+      createdAt: new Date(),
     });
 
     // Send OTP via SMS
     const smsResult = await sendOTPViaSMS(mobile, otp);
 
     // For development/testing - show OTP
-    const showOtpInResponse = process.env.NODE_ENV === "development" || 
-                              process.env.SHOW_OTP === "true" ||
-                              !smsResult.success;
+    const showOtpInResponse =
+      process.env.NODE_ENV === "development" ||
+      process.env.SHOW_OTP === "true" ||
+      !smsResult.success;
 
     if (smsResult.success) {
       return res.json({
-        message: "OTP sent successfully to your mobile number for registration.",
+        message:
+          "OTP sent successfully to your mobile number for registration.",
         alreadyRegistered: false,
         smsDelivered: true,
         note: "OTP is valid for 10 minutes",
         // Optional: Show OTP only in dev/test mode
-        ...(showOtpInResponse && { debugOtp: otp })
+        ...(showOtpInResponse && { debugOtp: otp }),
       });
     } else {
       // SMS failed but OTP is generated
       console.warn(`SMS failed for ${mobile}. Generated OTP: ${otp}`);
-      
+
       return res.json({
-        message: "OTP generated successfully for registration. Please check your SMS.",
+        message:
+          "OTP generated successfully for registration. Please check your SMS.",
         alreadyRegistered: false,
         smsDelivered: false,
         note: "OTP is valid for 10 minutes",
         // Show OTP in response for testing
         debugOtp: otp,
-        debugNote: "SMS delivery issue. Use this OTP for testing."
+        debugNote: "SMS delivery issue. Use this OTP for testing.",
       });
     }
   } catch (err) {
@@ -285,8 +393,8 @@ export const requestLoginOtp = async (req, res) => {
     // Validate mobile number format
     const mobileRegex = /^[6-9]\d{9}$/;
     if (!mobileRegex.test(mobile.replace(/^\+91|^0/, ""))) {
-      return res.status(400).json({ 
-        message: "Please enter a valid 10-digit Indian mobile number." 
+      return res.status(400).json({
+        message: "Please enter a valid 10-digit Indian mobile number.",
       });
     }
 
@@ -306,25 +414,26 @@ export const requestLoginOtp = async (req, res) => {
     }
 
     // Generate OTP - Fixed OTP for specific mobile number
-    const otp = mobile === '9696559848' ? '123456' : generateOTP();
-    const expiresAt = Date.now() + (OTP_EXPIRY_MINUTES * 60 * 1000);
-    
+    const otp = mobile === "9696559848" ? "123456" : generateOTP();
+    const expiresAt = Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000;
+
     // Store OTP in memory
     otpStore.set(mobile, {
       otp,
       expiresAt,
       purpose: "login",
       createdAt: new Date(),
-      userId: user._id
+      userId: user._id,
     });
 
     // Send OTP via SMS
     const smsResult = await sendOTPViaSMS(mobile, otp);
 
     // For development/testing - show OTP
-    const showOtpInResponse = process.env.NODE_ENV === "development" || 
-                              process.env.SHOW_OTP === "true" ||
-                              !smsResult.success;
+    const showOtpInResponse =
+      process.env.NODE_ENV === "development" ||
+      process.env.SHOW_OTP === "true" ||
+      !smsResult.success;
 
     if (smsResult.success) {
       return res.json({
@@ -333,12 +442,12 @@ export const requestLoginOtp = async (req, res) => {
         smsDelivered: true,
         note: "OTP is valid for 10 minutes",
         // Optional: Show OTP only in dev/test mode when explicitly enabled
-        ...(showOtpInResponse && { debugOtp: otp })
+        ...(showOtpInResponse && { debugOtp: otp }),
       });
     } else {
       // SMS failed but OTP is generated
       console.warn(`SMS failed for ${mobile}. Generated OTP: ${otp}`);
-      
+
       return res.json({
         message: "OTP generated successfully. Please check your SMS.",
         needRegistration: false,
@@ -346,7 +455,7 @@ export const requestLoginOtp = async (req, res) => {
         note: "OTP is valid for 10 minutes",
         // Show OTP in response for testing
         debugOtp: otp,
-        debugNote: "SMS delivery issue. Use this OTP for testing."
+        debugNote: "SMS delivery issue. Use this OTP for testing.",
       });
     }
   } catch (err) {
@@ -364,9 +473,7 @@ export const verifyOtp = async (req, res) => {
     const otp = (req.body.otp || "").trim();
 
     if (!mobile || !otp) {
-      return res
-        .status(400)
-        .json({ message: "Mobile and OTP are required." });
+      return res.status(400).json({ message: "Mobile and OTP are required." });
     }
 
     // Validate OTP format
@@ -376,12 +483,13 @@ export const verifyOtp = async (req, res) => {
 
     // Verify OTP from store
     const otpVerification = verifyStoredOTP(mobile, otp);
-    
+
     if (!otpVerification.valid) {
-      return res.status(400).json({ 
-        message: otpVerification.reason === "OTP expired" 
-          ? "OTP has expired. Please request a new one." 
-          : "Invalid OTP. Please try again." 
+      return res.status(400).json({
+        message:
+          otpVerification.reason === "OTP expired"
+            ? "OTP has expired. Please request a new one."
+            : "Invalid OTP. Please try again.",
       });
     }
 
@@ -392,16 +500,16 @@ export const verifyOtp = async (req, res) => {
     if (!user) {
       // Create new user for registration
       if (otpVerification.purpose !== "register") {
-        return res.status(400).json({ 
-          message: "Invalid OTP purpose. Please request registration OTP." 
+        return res.status(400).json({
+          message: "Invalid OTP purpose. Please request registration OTP.",
         });
       }
       user = await User.create({ mobile });
     } else {
       // Existing user for login
       if (otpVerification.purpose !== "login") {
-        return res.status(400).json({ 
-          message: "Invalid OTP purpose. Please request login OTP." 
+        return res.status(400).json({
+          message: "Invalid OTP purpose. Please request login OTP.",
         });
       }
     }
@@ -463,8 +571,8 @@ export const resendOtp = async (req, res) => {
     // Validate mobile number format
     const mobileRegex = /^[6-9]\d{9}$/;
     if (!mobileRegex.test(mobile.replace(/^\+91|^0/, ""))) {
-      return res.status(400).json({ 
-        message: "Please enter a valid 10-digit Indian mobile number." 
+      return res.status(400).json({
+        message: "Please enter a valid 10-digit Indian mobile number.",
       });
     }
 
@@ -477,7 +585,7 @@ export const resendOtp = async (req, res) => {
           needRegistration: true,
         });
       }
-      
+
       if (user.isBlocked) {
         return res.status(403).json({
           message: "User is blocked by admin.",
@@ -498,23 +606,24 @@ export const resendOtp = async (req, res) => {
 
     // Generate new OTP
     const otp = generateOTP();
-    const expiresAt = Date.now() + (OTP_EXPIRY_MINUTES * 60 * 1000);
-    
+    const expiresAt = Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000;
+
     // Store OTP in memory
     otpStore.set(mobile, {
       otp,
       expiresAt,
       purpose,
-      createdAt: new Date()
+      createdAt: new Date(),
     });
 
     // Send OTP via SMS
     const smsResult = await sendOTPViaSMS(mobile, otp);
 
     // For development/testing - show OTP
-    const showOtpInResponse = process.env.NODE_ENV === "development" || 
-                              process.env.SHOW_OTP === "true" ||
-                              !smsResult.success;
+    const showOtpInResponse =
+      process.env.NODE_ENV === "development" ||
+      process.env.SHOW_OTP === "true" ||
+      !smsResult.success;
 
     if (smsResult.success) {
       return res.json({
@@ -523,12 +632,12 @@ export const resendOtp = async (req, res) => {
         purpose,
         note: "OTP is valid for 10 minutes",
         // Optional: Show OTP only in dev/test mode
-        ...(showOtpInResponse && { debugOtp: otp })
+        ...(showOtpInResponse && { debugOtp: otp }),
       });
     } else {
       // SMS failed but OTP is generated
       console.warn(`SMS failed for ${mobile}. Generated OTP: ${otp}`);
-      
+
       return res.json({
         message: "OTP regenerated successfully. Please check your SMS.",
         smsDelivered: false,
@@ -536,7 +645,7 @@ export const resendOtp = async (req, res) => {
         note: "OTP is valid for 10 minutes",
         // Show OTP in response for testing
         debugOtp: otp,
-        debugNote: "SMS delivery issue. Use this OTP for testing."
+        debugNote: "SMS delivery issue. Use this OTP for testing.",
       });
     }
   } catch (err) {
@@ -552,23 +661,23 @@ export const getUserProfile = async (req, res) => {
   try {
     // Query parameters से user ID लें
     const userId = req.query.userId || req.query.id;
-    
+
     if (!userId) {
-      return res.status(400).json({ 
-        message: "User ID is required as query parameter. Use ?userId=USER_ID" 
+      return res.status(400).json({
+        message: "User ID is required as query parameter. Use ?userId=USER_ID",
       });
     }
 
     const user = await User.findById(userId).lean();
-    
+
     if (!user || user.isDeleted) {
       return res.status(404).json({ message: "User not found" });
     }
 
     // Check if user is blocked
     if (user.isBlocked) {
-      return res.status(403).json({ 
-        message: "This user account is blocked." 
+      return res.status(403).json({
+        message: "This user account is blocked.",
       });
     }
 
@@ -595,12 +704,12 @@ export const getUserProfile = async (req, res) => {
     });
   } catch (err) {
     console.error("getUserProfile error:", err);
-    
+
     // Handle invalid ObjectId format
-    if (err.name === 'CastError') {
+    if (err.name === "CastError") {
       return res.status(400).json({ message: "Invalid user ID format." });
     }
-    
+
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -612,10 +721,10 @@ export const updateUserProfile = async (req, res) => {
   try {
     // Query parameters से user ID लें
     const userId = req.query.userId || req.query.id;
-    
+
     if (!userId) {
-      return res.status(400).json({ 
-        message: "User ID is required as query parameter. Use ?userId=USER_ID" 
+      return res.status(400).json({
+        message: "User ID is required as query parameter. Use ?userId=USER_ID",
       });
     }
 
@@ -650,10 +759,9 @@ export const updateUserProfile = async (req, res) => {
       update.dateOfBirth = dob;
     }
 
-if (req.file && req.file.path) {
-  update.profileImageUrl = req.file.path;
-}
-
+    if (req.file && req.file.path) {
+      update.profileImageUrl = req.file.path;
+    }
 
     const user = await User.findByIdAndUpdate(userId, update, {
       new: true,
@@ -666,8 +774,8 @@ if (req.file && req.file.path) {
 
     // Check if user is blocked
     if (user.isBlocked) {
-      return res.status(403).json({ 
-        message: "This user account is blocked." 
+      return res.status(403).json({
+        message: "This user account is blocked.",
       });
     }
 
@@ -693,12 +801,12 @@ if (req.file && req.file.path) {
     });
   } catch (err) {
     console.error("updateUserProfile error:", err);
-    
+
     // Handle invalid ObjectId format
-    if (err.name === 'CastError') {
+    if (err.name === "CastError") {
       return res.status(400).json({ message: "Invalid user ID format." });
     }
-    
+
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -710,15 +818,15 @@ export const logoutAllUser = async (req, res) => {
   try {
     // Query parameters से user ID लें
     const userId = req.query.userId || req.query.id;
-    
+
     if (!userId) {
-      return res.status(400).json({ 
-        message: "User ID is required as query parameter. Use ?userId=USER_ID" 
+      return res.status(400).json({
+        message: "User ID is required as query parameter. Use ?userId=USER_ID",
       });
     }
 
     const user = await User.findById(userId).select("+tokenVersion");
-    
+
     if (!user || user.isDeleted) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -731,12 +839,12 @@ export const logoutAllUser = async (req, res) => {
     });
   } catch (err) {
     console.error("logoutAllUser error:", err);
-    
+
     // Handle invalid ObjectId format
-    if (err.name === 'CastError') {
+    if (err.name === "CastError") {
       return res.status(400).json({ message: "Invalid user ID format." });
     }
-    
+
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -767,7 +875,7 @@ export const adminListUsers = async (_req, res) => {
         updatedAt: 1,
         createdAtIST: 1,
         updatedAtIST: 1,
-      }
+      },
     ).lean();
 
     return res.json({ users });
@@ -858,7 +966,7 @@ export const adminBlockUser = async (req, res) => {
     const user = await User.findByIdAndUpdate(
       req.params.id,
       { isBlocked },
-      { new: true }
+      { new: true },
     ).lean();
 
     if (!user || user.isDeleted) {
