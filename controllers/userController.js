@@ -51,7 +51,8 @@ const sendOTPViaSMS = async (mobile, otp) => {
       formattedMobile === "9696559848" ? "123456" : otp;
 
     // 🔥 EXACT DLT TEMPLATE
-    const message = `${finalOtp} is your one-time password for account verification.`;
+const message = `${otp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
+
 
     const params = new URLSearchParams({
       username: SMS_USERNAME,
