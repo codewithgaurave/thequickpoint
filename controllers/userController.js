@@ -39,20 +39,21 @@ const generateOTP = () => {
 };
 
 // helper: send OTP via SMS
-// helper: send OTP via SMS - ULTRA SIMPLE VERSION
+// helper: send OTP via SMS - DEBUG VERSION
 const sendOTPViaSMS = async (mobile, otp) => {
   try {
     // Format mobile number
     let formattedMobile = mobile.replace(/^\+91|^0/, "");
     
-    // Always use 123456 for testing number
-    if (formattedMobile === "9696559848") {
-      otp = "123456";
-    }
-
-    console.log(`📱 Attempting to send OTP ${otp} to ${formattedMobile}`);
+    // Always use 123456 for specific mobile number
+    const finalOtp = formattedMobile === "9696559848" ? "123456" : otp;
     
-    const message = `${otp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
+    console.log(`\n📱 ===== SMS DEBUG START =====`);
+    console.log(`📞 Mobile: ${formattedMobile}`);
+    console.log(`🔑 OTP: ${finalOtp}`);
+
+    const message = `${finalOtp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
+    console.log(`📝 Message: ${message}`);
 
     const params = new URLSearchParams({
       username: SMS_USERNAME,
@@ -65,38 +66,226 @@ const sendOTPViaSMS = async (mobile, otp) => {
     });
 
     const smsUrl = `${SMS_API_URL}?${params.toString()}`;
-    console.log(`🔗 Calling SMS Gateway...`);
+    console.log(`🔗 Full URL (for manual testing):`);
+    console.log(smsUrl);
     
-    // Simple fetch request
-    const response = await fetch(smsUrl, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0'
+    // Short URL for logs
+    const shortUrl = smsUrl.substring(0, 100) + '...';
+    console.log(`🔗 Short URL: ${shortUrl}`);
+
+    let response;
+    let responseText = '';
+    
+    try {
+      console.log(`⏳ Calling SMS gateway...`);
+      const startTime = Date.now();
+      
+      response = await axios.get(smsUrl, {
+        timeout: 30000,
+        headers: {
+          'User-Agent': 'QuickPoint-SMS/1.0',
+          'Accept': 'text/plain',
+          'Cache-Control': 'no-cache'
+        },
+        // Accept any status code
+        validateStatus: () => true
+      });
+      
+      const endTime = Date.now();
+      console.log(`⏱️ Response time: ${endTime - startTime}ms`);
+      console.log(`📡 HTTP Status: ${response.status} ${response.statusText}`);
+      
+      // Handle response data
+      if (typeof response.data === 'string') {
+        responseText = response.data.trim();
+      } else if (typeof response.data === 'object') {
+        responseText = JSON.stringify(response.data);
+      } else {
+        responseText = String(response.data || '');
       }
-    });
+      
+      console.log(`📨 Response Data: "${responseText}"`);
+      console.log(`📏 Response Length: ${responseText.length} chars`);
+      
+    } catch (axiosError) {
+      console.error(`❌ Axios Error: ${axiosError.message}`);
+      if (axiosError.code) console.error(`🔢 Error Code: ${axiosError.code}`);
+      if (axiosError.response) {
+        console.error(`📡 Response Status: ${axiosError.response.status}`);
+        console.error(`📄 Response Data: ${axiosError.response.data}`);
+      }
+      throw axiosError;
+    }
+
+    // ===== SMS GATEWAY SPECIFIC ANALYSIS =====
+    console.log(`\n🔍 Analyzing SMS gateway response...`);
     
-    const responseText = await response.text();
-    console.log(`📡 Response: ${responseText.substring(0, 200)}`);
+    // Common SMS gateway responses in India
+    const SUCCESS_RESPONSES = [
+      // Webzmedia specific responses (based on common patterns)
+      /^\d{10,}$/, // Only numbers (likely message ID)
+      /^[A-Za-z0-9]{10,}$/, // Alphanumeric message ID
+      /msg.*id/i,
+      /sms.*id/i,
+      /message.*id/i,
+      /sent/i,
+      /success/i,
+      /submitted/i,
+      /accepted/i,
+      /delivered/i,
+      /^1701/, // Common DLT success code
+      /^1702/,
+      /^ok$/i,
+      /^success$/i,
+      /^submitted$/i,
+    ];
     
-    // If we get here without error, assume success
-    // (many SMS gateways work this way)
-    return {
-      success: true,
-      messageId: `SMS_${Date.now()}_${formattedMobile}`,
-      response: responseText || "OK",
-      mobile: formattedMobile
-    };
+    const FAILURE_RESPONSES = [
+      /error/i,
+      /failed/i,
+      /failure/i,
+      /rejected/i,
+      /invalid/i,
+      /not.*found/i,
+      /unauthorized/i,
+      /denied/i,
+      /insufficient.*balance/i,
+      /balance.*insufficient/i,
+      /expired/i,
+      /suspended/i,
+      /dnd/i,
+      /blocked/i,
+      /^1704/, // Common DLT error codes
+      /^1705/,
+      /^1706/,
+      /^1707/,
+    ];
+    
+    // Check for success patterns
+    let isSuccess = false;
+    let detectedPattern = 'None';
+    
+    for (const pattern of SUCCESS_RESPONSES) {
+      if (pattern.test(responseText)) {
+        isSuccess = true;
+        detectedPattern = pattern.toString();
+        break;
+      }
+    }
+    
+    // Override if HTTP status is good (200-299)
+    if (response.status >= 200 && response.status < 300) {
+      console.log(`✅ HTTP status indicates success (${response.status})`);
+      isSuccess = true;
+      detectedPattern = `HTTP_${response.status}`;
+    }
+    
+    // Check for failure patterns (override success if found)
+    for (const pattern of FAILURE_RESPONSES) {
+      if (pattern.test(responseText)) {
+        console.log(`❌ Failure pattern detected: ${pattern}`);
+        isSuccess = false;
+        detectedPattern = `FAIL_${pattern.toString()}`;
+        break;
+      }
+    }
+    
+    // Special case: Empty response
+    if (responseText === '') {
+      console.log(`⚠️ Empty response from gateway`);
+      // Some gateways return empty on success
+      // We'll check HTTP status instead
+      if (response.status >= 200 && response.status < 300) {
+        isSuccess = true;
+        detectedPattern = 'EMPTY_BUT_HTTP_OK';
+      }
+    }
+    
+    console.log(`📊 Analysis Result:`);
+    console.log(`   Success: ${isSuccess ? '✅ YES' : '❌ NO'}`);
+    console.log(`   Pattern: ${detectedPattern}`);
+    console.log(`   Response: "${responseText}"`);
+    
+    // Extract message ID if possible
+    let messageId = null;
+    if (isSuccess) {
+      // Try common message ID patterns
+      const idPatterns = [
+        /\b\d{10,}\b/, // 10+ digit number
+        /\b[A-Za-z0-9]{10,}\b/, // 10+ alphanumeric
+        /msg.?id[:\s]*([A-Za-z0-9]+)/i,
+        /sms.?id[:\s]*([A-Za-z0-9]+)/i,
+        /message.?id[:\s]*([A-Za-z0-9]+)/i,
+        /id[:\s]*([A-Za-z0-9]+)/i,
+      ];
+      
+      for (const pattern of idPatterns) {
+        const match = responseText.match(pattern);
+        if (match && match[1]) {
+          messageId = match[1];
+          break;
+        } else if (match && match[0]) {
+          messageId = match[0];
+          break;
+        }
+      }
+      
+      // If no pattern matched but response looks like an ID
+      if (!messageId && /^[A-Za-z0-9]{10,}$/.test(responseText)) {
+        messageId = responseText;
+      }
+      
+      if (!messageId) {
+        messageId = `SMS_${Date.now()}_${formattedMobile}`;
+      }
+    }
+    
+    console.log(`📋 Message ID: ${messageId || 'Not found'}`);
+    console.log(`📱 ===== SMS DEBUG END =====\n`);
+    
+    if (isSuccess) {
+      return {
+        success: true,
+        messageId: messageId,
+        response: responseText,
+        mobile: formattedMobile,
+        debug: {
+          detectedPattern: detectedPattern,
+          httpStatus: response.status
+        }
+      };
+    } else {
+      return {
+        success: false,
+        error: responseText || 'SMS gateway returned failure',
+        response: responseText,
+        mobile: formattedMobile,
+        debug: {
+          detectedPattern: detectedPattern,
+          httpStatus: response.status
+        }
+      };
+    }
     
   } catch (error) {
-    console.error(`❌ SMS Error for ${mobile}:`, error.message);
+    console.error(`💥 CRITICAL ERROR in sendOTPViaSMS:`);
+    console.error(`   Mobile: ${mobile}`);
+    console.error(`   Error: ${error.message}`);
+    console.error(`   Stack: ${error.stack}`);
     
-    // Even if error, for testing return success
-    // so OTP flow continues
+    // For testing purposes, return success anyway
+    // So OTP flow can continue with debug OTP
+    const formattedMobile = mobile.replace(/^\+91|^0/, "");
+    
     return {
-      success: true, // Force true for testing
+      success: true, // Force true so OTP is shown in response
       error: error.message,
-      mobile: mobile.replace(/^\+91|^0/, ""),
-      note: "SMS may not have been sent due to gateway issue"
+      response: 'SMS_GATEWAY_ERROR',
+      mobile: formattedMobile,
+      debug: {
+        error: error.message,
+        note: 'SMS may not have been sent due to gateway error'
+      }
     };
   }
 };
