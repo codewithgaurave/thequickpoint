@@ -12,7 +12,11 @@ const SMS_USERNAME = process.env.SMS_USERNAME || "Quickpoint";
 const SMS_PASSWORD = process.env.SMS_PASSWORD || "Quickpoint123";
 const SMS_SENDER_ID = process.env.SMS_SENDER_ID || "THQPNT";
 const SMS_ROUTE = process.env.SMS_ROUTE || "1";
-const SMS_TEMPLATE_ID = process.env.SMS_TEMPLATE_ID || "1107176249859819412";
+const SMS_TEMPLATE_ID = process.env.SMS_TEMPLATE_ID || "1107176258986874088";
+const SMS_ENTITY_ID = process.env.SMS_ENTITY_ID || "1101176249859819412";
+
+// OTP specific template ID (hardcoded)
+const OTP_TEMPLATE_ID = "1107176249859819412";
 
 // OTP configuration
 const OTP_EXPIRY_MINUTES = 10; // OTP validity in minutes
@@ -38,37 +42,32 @@ const generateOTP = () => {
   return otp;
 };
 
-// helper: send OTP via SMS - ULTIMATE FIXED VERSION
+// helper: send OTP via SMS - FIXED VERSION
 const sendOTPViaSMS = async (mobile, otp) => {
   try {
     const formattedMobile = mobile.replace(/^\+91|^0/, "");
 
-    const finalOtp =
-      formattedMobile === "9696559848" ? "123456" : otp;
+    const finalOtp = formattedMobile === "9696559848" ? "123456" : otp;
 
     const message = `${finalOtp} is your one-time password for account verification. Please enter the OTP to proceed. The Quick Point`;
 
-    const params = new URLSearchParams({
-      username: SMS_USERNAME,
-      password: SMS_PASSWORD,
-      senderid: SMS_SENDER_ID,
-      route: SMS_ROUTE,
-      number: formattedMobile,
-      message,
-      templateid: SMS_TEMPLATE_ID,
-      entityid: process.env.SMS_ENTITY_ID, // MUST exist
-    });
-
-    const smsUrl = `${SMS_API_URL}?${params.toString()}`;
+    // Use OTP specific template ID
+    const smsUrl = `${SMS_API_URL}?username=${SMS_USERNAME}&password=${SMS_PASSWORD}&senderid=${SMS_SENDER_ID}&route=${SMS_ROUTE}&number=${formattedMobile}&message=${encodeURIComponent(message)}&templateid=${OTP_TEMPLATE_ID}&entityid=${SMS_ENTITY_ID}`;
+    
     console.log("📤 SMS URL:", smsUrl);
 
-    const response = await axios.get(smsUrl);
+    const response = await axios.get(smsUrl, {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
     const responseText = String(response.data || "");
-
     console.log("📨 SMS RESPONSE:", responseText);
 
-    if (/success|submitted|SMSID|Msgid|msg-id/i.test(responseText)) {
-      return { success: true };
+    if (/success|submitted|SMSID|Msgid|msg-id|sent/i.test(responseText)) {
+      return { success: true, response: responseText };
     }
 
     return { success: false, error: responseText };
