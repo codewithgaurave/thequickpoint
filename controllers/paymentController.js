@@ -418,6 +418,31 @@ export const verifyPayment = async (req, res) => {
     const userId = getUserId(req);
     const { paymentId } = req.params;
 
+    // ✅ Handle COD payments specially
+    if (paymentId.startsWith('COD_')) {
+      const orderId = paymentId.replace('COD_', '');
+      
+      // Find payment by order ID for COD
+      const payment = await Payment.findOne({
+        order: orderId,
+        user: userId,
+        paymentMethod: 'cod',
+        isDeleted: false,
+      });
+
+      if (!payment) {
+        return res.status(404).json({ message: "COD payment not found" });
+      }
+
+      // COD payments are already completed
+      return res.json({
+        message: "COD payment verified successfully",
+        payment,
+        cartCleared: false, // COD doesn't need cart clearing here
+      });
+    }
+
+    // Regular online payment verification
     const payment = await Payment.findOne({
       _id: paymentId,
       user: userId,
