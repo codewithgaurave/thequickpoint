@@ -225,13 +225,19 @@ export const checkoutFromCart = async (req, res) => {
 
     // ✅ CREATE PAYMENT RECORD FOR COD ORDERS
     if (paymentMethod === "cod") {
-      await Payment.create({
-        user: userId,
-        order: order._id,
-        paymentMethod: "cod",
-        amount: grandTotal,
-        status: "completed",
-      });
+      try {
+        const codPayment = await Payment.create({
+          user: userId,
+          order: order._id,
+          paymentMethod: "cod",
+          amount: grandTotal,
+          status: "completed",
+        });
+        console.log(`✅ COD Payment created: ${codPayment._id} for order: ${order._id}`);
+      } catch (paymentError) {
+        console.error(`❌ COD Payment creation failed for order ${order._id}:`, paymentError);
+        // Don't fail the order, just log the error
+      }
     }
 
     // ✅ ONLY CLEAR CART IF PAYMENT IS COD (immediate success)

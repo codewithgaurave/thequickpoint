@@ -421,6 +421,7 @@ export const verifyPayment = async (req, res) => {
     // ✅ Handle COD payments specially
     if (paymentId.startsWith('COD_')) {
       const orderId = paymentId.replace('COD_', '');
+      console.log(`🔍 COD Verify - Order ID: ${orderId}, User ID: ${userId}`);
       
       // Find payment by order ID for COD
       const payment = await Payment.findOne({
@@ -430,8 +431,63 @@ export const verifyPayment = async (req, res) => {
         isDeleted: false,
       });
 
+      console.log(`🔍 COD Payment found:`, payment ? `${payment._id} (${payment.status})` : 'NOT FOUND');
+
       if (!payment) {
-        return res.status(404).json({ message: "COD payment not found" });
+        // Try to find any payment for this order
+        const anyPayment = await Payment.findOne({
+          order: orderId,
+          isDeleted: false,
+        });
+        console.log(`🔍 Any payment for order:`, anyPayment ? `${anyPayment._id} (${anyPayment.paymentMethod}, ${anyPayment.status})` : 'NONE');
+        
+        // ✅ CREATE COD PAYMENT IF NOT EXISTS (FALLBACK)
+        if (!anyPayment) {
+          try {
+            // Get order details to create payment
+            const order = await Order.findById(orderId);
+            if (order && order.paymentMethod === 'cod') {
+              const newCodPayment = await Payment.create({
+                user: userId,
+                order: orderId,
+                paymentMethod: 'cod',
+                amount: order.grandTotal,
+                status: 'completed',
+              });
+              console.log(`✅ Created missing COD payment: ${newCodPayment._id}`);
+              
+              return res.json({
+                message: "COD payment created and verified successfully",
+                payment: newCodPayment,
+                cartCleared: false,
+                wasCreated: true
+              });
+            }
+          } catch (createError) {
+            console.error('❌ Failed to create COD payment:', createError);
+          }
+        }
+        
+        return res.status(404).json({ 
+          message: "COD payment not found",
+          debug: {
+            orderId,
+            userId,
+            searchCriteria: {
+              order: orderId,
+              user: userId,
+              paymentMethod: 'cod',
+              isDeleted: false
+            },
+            anyPaymentFound: anyPayment ? {
+              id: anyPayment._id,
+              paymentMethod: anyPayment.paymentMethod,
+              status: anyPayment.status,
+              user: anyPayment.user,
+              order: anyPayment.order
+            } : null
+          }
+        });
       }
 
       // COD payments are already completed
