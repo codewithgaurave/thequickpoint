@@ -1,6 +1,7 @@
 import Cart from "../models/Cart.js";
 import Order from "../models/Order.js";
 import Store from "../models/Store.js";
+import Payment from "../models/Payment.js";
 import mongoose from "mongoose";
 import { sendOrderConfirmationSMS, generateCollectionOTP, generateOrderNumber } from "../services/smsService.js";
 
@@ -221,6 +222,17 @@ export const checkoutFromCart = async (req, res) => {
       },
       notes: notes || "",
     });
+
+    // ✅ CREATE PAYMENT RECORD FOR COD ORDERS
+    if (paymentMethod === "cod") {
+      await Payment.create({
+        user: userId,
+        order: order._id,
+        paymentMethod: "cod",
+        amount: grandTotal,
+        status: "completed",
+      });
+    }
 
     // ✅ ONLY CLEAR CART IF PAYMENT IS COD (immediate success)
     // For online payments, cart will be cleared via webhook after payment success
