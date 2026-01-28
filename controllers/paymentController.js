@@ -206,16 +206,26 @@ export const initiatePayment = async (req, res) => {
 export const getPaymentStatus = async (req, res) => {
   try {
     const userId = getUserId(req);
-    const { orderId } = req.params;
+    const { paymentId } = req.params;
 
     const payment = await Payment.findOne({
-      order: orderId,
+      _id: paymentId,
       user: userId,
       isDeleted: false,
     });
 
     if (!payment) {
       return res.status(404).json({ message: "Payment not found" });
+    }
+
+    // ✅ COD payments are already completed, return immediately
+    if (payment.paymentMethod === "cod") {
+      return res.json({
+        payment,
+        isCompleted: true,
+        isPending: false,
+        isFailed: false,
+      });
     }
 
     // ✅ If payment is pending and has cashfreeOrderId, check with Cashfree
