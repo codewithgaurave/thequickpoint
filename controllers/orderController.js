@@ -182,6 +182,7 @@ export const checkoutFromCart = async (req, res) => {
 
     // Set payment status based on payment method
     const paymentStatus = paymentMethod === "cod" ? "paid" : "pending";
+    const orderStatus = paymentMethod === "cod" ? "confirmed" : "pending";
 
     const order = await Order.create({
       user: userId,
@@ -192,6 +193,7 @@ export const checkoutFromCart = async (req, res) => {
       grandTotal,
       paymentMethod: paymentMethod || "cod",
       paymentStatus,
+      status: orderStatus, // ✅ Set order status based on payment method
       orderNumber,
       collectionOTP,
       shippingAddress: {

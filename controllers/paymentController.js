@@ -251,10 +251,11 @@ export const getPaymentStatus = async (req, res) => {
           payment.metadata = { ...payment.metadata, cashfreeResponse: cfResponse.data };
           await payment.save();
 
-          // Update order payment status
+          // Update order payment status AND order status
           if (payment.order) {
             await Order.findByIdAndUpdate(payment.order, {
               paymentStatus: "paid",
+              status: "confirmed", // ✅ Update order status to confirmed
             });
 
             // ✅ SEND ORDER CONFIRMATION SMS
@@ -349,6 +350,7 @@ export const handlePaymentWebhook = async (req, res) => {
         if (payment.order) {
           await Order.findByIdAndUpdate(payment.order, {
             paymentStatus: "paid",
+            status: "confirmed", // ✅ Update order status to confirmed
           });
         }
 
@@ -541,6 +543,7 @@ export const verifyPayment = async (req, res) => {
       if (payment.order) {
         await Order.findByIdAndUpdate(payment.order, {
           paymentStatus: "paid",
+          status: "confirmed", // ✅ Update order status to confirmed
         });
       }
 
