@@ -24,6 +24,7 @@ import storeOwnerRoutes from "./routes/storeOwnerRoutes.js";
 import deliveryBoyRoutes from "./routes/deliveryBoyRoutes.js";
 import addressRoutes from "./routes/addressRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
+import appVersionRoutes from "./routes/appVersionRoutes.js";
 
 
 const app = express();
@@ -65,6 +66,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/delivery-boys", deliveryBoyRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/app-version", appVersionRoutes);
 
 // Connect DB
 await connectDB();
