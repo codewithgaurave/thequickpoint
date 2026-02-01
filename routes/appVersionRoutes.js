@@ -8,7 +8,7 @@ import {
   deleteVersion,
   getLatestSave
 } from "../controllers/appVersionController.js";
-import { authenticateAdmin } from "../middleware/auth.js";
+import { requireAdminAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -18,9 +18,9 @@ router.post("/check-update", checkUpdate);
 router.get("/latest-save", getLatestSave);
 
 // Admin routes (protected)
-router.post("/", authenticateAdmin, createVersion);
-router.get("/all", authenticateAdmin, getAllVersions);
-router.put("/:id", authenticateAdmin, updateVersion);
-router.delete("/:id", authenticateAdmin, deleteVersion);
+router.post("/", requireAdminAuth, createVersion);
+router.get("/all", requireAdminAuth, getAllVersions);
+router.put("/:id", requireAdminAuth, updateVersion);
+router.delete("/:id", requireAdminAuth, deleteVersion);
 
 export default router;
