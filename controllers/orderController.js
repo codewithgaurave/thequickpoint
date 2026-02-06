@@ -352,6 +352,265 @@ export const checkoutFromStore = async (req, res) => {
 };
 
 // --------------------------------------
+// POST /api/orders/checkout-with-store-selection
+// Checkout from cart with store selection for mixed cart items
+// body: { userId, selectedStoreId, ...shippingFields }
+// --------------------------------------
+export const checkoutWithStoreSelection = async (req, res) => {
+  try {
+    const userId = getUserIdFromReqWithValidation(req);
+    const { selectedStoreId, paymentMethod } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false,
+        message: "userId is required. Provide it in query, body, or use authentication token." 
+      });
+    }
+
+    if (!selectedStoreId) {
+      return res.status(400).json({ 
+        success: false,
+        message: "selectedStoreId is required for store selection checkout." 
+      });
+    }
+
+    // Verify selected store exists and is active
+    const selectedStore = await Store.findOne({
+      _id: selectedStoreId,
+      isDeleted: false,
+      isActive: true,
+    }).lean();
+    
+    if (!selectedStore) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Selected store not found or inactive." 
+      });
+    }
+
+    const cart = await Cart.findOne({
+      user: userId,
+      isDeleted: false,
+    })
+    .populate("items.product")
+    .populate("items.store");
+
+    if (!cart || !cart.items || cart.items.length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Cart is empty." 
+      });
+    }
+
+    // Get all cart items (both global and store-specific)
+    const itemsToCheckout = cart.items.filter(item => 
+      item.product && !item.product.isDeleted && item.product.isActive
+    );
+
+    if (itemsToCheckout.length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: "No valid items in cart for checkout." 
+      });
+    }
+
+    const {
+      fullName,
+      mobile,
+      email,
+      addressLine1,
+      addressLine2,
+      landmark,
+      city,
+      state,
+      pincode,
+      country,
+      latitude,
+      longitude,
+      accuracy,
+      notes,
+    } = req.body;
+
+    const orderItems = [];
+    let subtotal = 0;
+    let grandTotal = 0;
+
+    for (const item of itemsToCheckout) {
+      const product = item.product;
+      const qty = item.quantity;
+      const price = product.price;
+      const offerPrice =
+        product.offerPrice !== undefined && product.offerPrice !== null
+          ? product.offerPrice
+          : price;
+
+      const lineSubtotal = price * qty;
+      const lineTotal = offerPrice * qty;
+
+      subtotal += lineSubtotal;
+      grandTotal += lineTotal;
+
+      let percentageOff = 0;
+      if (price > 0 && offerPrice < price) {
+        percentageOff = Math.round(((price - offerPrice) / price) * 100);
+      }
+
+      orderItems.push({
+        product: product._id,
+        name: product.name,
+        images: product.images || [],
+        unit: product.unit || "piece",
+        quantity: qty,
+        price,
+        offerPrice,
+        percentageOff,
+        lineTotal,
+      });
+    }
+
+    const totalDiscount = subtotal - grandTotal;
+
+    // Generate collection OTP and order number
+    const collectionOTP = generateCollectionOTP();
+    const orderNumber = generateOrderNumber();
+
+    // Set payment status based on payment method
+    const paymentStatus = paymentMethod === "cod" ? "paid" : "pending";
+    const orderStatus = paymentMethod === "cod" ? "confirmed" : "pending";
+
+    const order = await Order.create({
+      user: userId,
+      store: selectedStoreId, // Assign order to selected store
+      items: orderItems,
+      subtotal,
+      totalDiscount,
+      grandTotal,
+      paymentMethod: paymentMethod || "cod",
+      paymentStatus,
+      status: orderStatus,
+      orderNumber,
+      collectionOTP,
+      shippingAddress: {
+        fullName: fullName || "",
+        mobile: mobile || "",
+        email: email || "",
+        addressLine1: addressLine1 || "",
+        addressLine2: addressLine2 || "",
+        landmark: landmark || "",
+        city: city || "",
+        state: state || "",
+        pincode: pincode || "",
+        country: country || "India",
+        location: {
+          latitude:
+            latitude !== undefined && latitude !== null
+              ? Number(latitude)
+              : undefined,
+          longitude:
+            longitude !== undefined && longitude !== null
+              ? Number(longitude)
+              : undefined,
+          accuracy:
+            accuracy !== undefined && accuracy !== null
+              ? Number(accuracy)
+              : undefined,
+        },
+      },
+      notes: notes || "",
+    });
+
+    // Create payment record for COD orders
+    if (paymentMethod === "cod") {
+      try {
+        const codPayment = await Payment.create({
+          user: userId,
+          order: order._id,
+          paymentMethod: "cod",
+          amount: grandTotal,
+          status: "completed",
+        });
+        console.log(`✅ COD Payment created: ${codPayment._id} for order: ${order._id}`);
+      } catch (paymentError) {
+        console.error(`❌ COD Payment creation failed for order ${order._id}:`, paymentError);
+      }
+    }
+
+    // Clear entire cart for COD orders (since all items go to selected store)
+    if (paymentMethod === "cod") {
+      cart.items = [];
+      await cart.save();
+    }
+
+    const populatedOrder = await Order.findById(order._id)
+      .populate("items.product", "name images unit store")
+      .populate("store", "storeName managerName managerPhone location")
+      .populate("user", "mobile email fullName")
+      .lean();
+
+    // Send order confirmation SMS
+    const customerMobile = mobile || populatedOrder.user?.mobile;
+    let smsResult = null;
+    
+    if (customerMobile && (paymentMethod === "cod" || paymentStatus === "paid")) {
+      smsResult = await sendOrderConfirmationSMS(
+        customerMobile, 
+        populatedOrder.orderNumber,
+        collectionOTP
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `Order placed successfully for ${populatedOrder.store?.storeName || 'selected store'}`,
+      order: populatedOrder,
+      paymentRequired: paymentMethod !== "cod" && paymentStatus === "pending",
+      smsNotification: {
+        sent: smsResult?.success || false,
+        mobile: customerMobile,
+        collectionOTP: smsResult?.collectionOTP
+      }
+    });
+  } catch (err) {
+    console.error("checkoutWithStoreSelection error:", err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
+  }
+};
+
+// --------------------------------------
+// GET /api/stores/active
+// Get all active stores for selection during checkout
+// --------------------------------------
+export const getActiveStoresForCheckout = async (req, res) => {
+  try {
+    const stores = await Store.find({
+      isActive: true,
+      isDeleted: false,
+    })
+      .select('storeName location managerName managerPhone storeImageUrl')
+      .sort({ storeName: 1 })
+      .lean();
+
+    return res.json({ 
+      success: true,
+      count: stores.length,
+      stores 
+    });
+  } catch (err) {
+    console.error("getActiveStoresForCheckout error:", err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
+  }
+};
+
+// --------------------------------------
 // GET /api/orders/my?userId=...
 // Get user's all orders (both global and store)
 // Supports both: with auth token OR with userId in query

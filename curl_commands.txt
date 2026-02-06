@@ -1,0 +1,102 @@
+# Manual Testing Commands for Store Selection Checkout
+# Replace USER_ID and STORE_ID with actual values from responses
+
+## 1. User Login (Mobile: 9696559848, OTP: 123456)
+
+### Request Login OTP (if needed)
+curl -X POST http://localhost:5000/api/users/request-otp/login \
+  -H "Content-Type: application/json" \
+  -d '{"mobile": "9696559848"}'
+
+### Verify OTP and Login
+curl -X POST http://localhost:5000/api/users/verify-otp \
+  -H "Content-Type: application/json" \
+  -d '{"mobile": "9696559848", "otp": "123456"}'
+
+# Save the "id" from response as USER_ID
+
+## 2. Get Active Stores for Selection
+curl -X GET "http://localhost:5000/api/orders/stores/active"
+
+# Save any "_id" from stores array as STORE_ID
+
+## 3. Check Current Cart
+curl -X GET "http://localhost:5000/api/cart?userId=USER_ID_HERE"
+
+## 4. Add Product to Cart (if cart is empty)
+# First get products
+curl -X GET "http://localhost:5000/api/products"
+
+# Add product to cart
+curl -X POST http://localhost:5000/api/cart/add \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "USER_ID_HERE",
+    "productId": "PRODUCT_ID_HERE",
+    "quantity": 2
+  }'
+
+## 5. Checkout with Store Selection (NEW FEATURE)
+curl -X POST http://localhost:5000/api/orders/checkout-with-store-selection \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "USER_ID_HERE",
+    "selectedStoreId": "STORE_ID_HERE",
+    "paymentMethod": "cod",
+    "fullName": "Test User",
+    "mobile": "9696559848",
+    "email": "test@example.com",
+    "addressLine1": "123 Test Street",
+    "city": "Test City",
+    "state": "Test State",
+    "pincode": "123456",
+    "country": "India",
+    "latitude": 28.6139,
+    "longitude": 77.2090,
+    "notes": "Test order with store selection"
+  }'
+
+## 6. Verify Order Placement
+curl -X GET "http://localhost:5000/api/orders/my?userId=USER_ID_HERE"
+
+## 7. Check Cart After Checkout (should be empty for COD orders)
+curl -X GET "http://localhost:5000/api/cart?userId=USER_ID_HERE"
+
+## 8. Get Store-Specific Orders
+curl -X GET "http://localhost:5000/api/orders/my/store/STORE_ID_HERE?userId=USER_ID_HERE"
+
+## Alternative: Traditional Store Checkout (existing feature)
+curl -X POST http://localhost:5000/api/orders/store/STORE_ID_HERE/checkout \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "USER_ID_HERE",
+    "paymentMethod": "cod",
+    "fullName": "Test User",
+    "mobile": "9696559848",
+    "email": "test@example.com",
+    "addressLine1": "123 Test Street",
+    "city": "Test City",
+    "state": "Test State",
+    "pincode": "123456",
+    "country": "India"
+  }'
+
+## Example with Real Values (replace with your actual IDs):
+# USER_ID: 507f1f77bcf86cd799439011
+# STORE_ID: 507f1f77bcf86cd799439012
+
+# curl -X POST http://localhost:5000/api/orders/checkout-with-store-selection \
+#   -H "Content-Type: application/json" \
+#   -d '{
+#     "userId": "507f1f77bcf86cd799439011",
+#     "selectedStoreId": "507f1f77bcf86cd799439012",
+#     "paymentMethod": "cod",
+#     "fullName": "Test User",
+#     "mobile": "9696559848",
+#     "email": "test@example.com",
+#     "addressLine1": "123 Test Street",
+#     "city": "Test City",
+#     "state": "Test State",
+#     "pincode": "123456",
+#     "country": "India"
+#   }'

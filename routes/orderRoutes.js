@@ -2,6 +2,8 @@ import express from "express";
 import {
   checkoutFromCart,
   checkoutFromStore,
+  checkoutWithStoreSelection,
+  getActiveStoresForCheckout,
   getMyOrders,
   getMyGlobalOrders,
   getMyStoreOrders,
@@ -19,7 +21,11 @@ const router = express.Router();
 
 // ✅ User order routes (id-based)
 router.post("/checkout", checkoutFromCart);              // POST /api/orders/checkout
+router.post("/checkout-with-store-selection", checkoutWithStoreSelection); // POST /api/orders/checkout-with-store-selection
 router.post("/store/:storeId/checkout", checkoutFromStore); // POST /api/orders/store/:storeId/checkout
+
+// Get active stores for checkout selection
+router.get("/stores/active", getActiveStoresForCheckout); // GET /api/orders/stores/active
 
 router.get("/my", getMyOrders);                         // GET /api/orders/my?userId=...
 router.get("/my/global", getMyGlobalOrders);            // GET /api/orders/my/global?userId=...
