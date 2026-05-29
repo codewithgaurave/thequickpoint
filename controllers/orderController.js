@@ -112,6 +112,25 @@ export const checkoutFromCart = async (req, res) => {
       }
     }
 
+    if (storeId) {
+      // Check if all products in the cart are actually assigned to the selected store
+      const unassignedItems = itemsToCheckout.filter(item => {
+        if (!item.product || !item.product.stores || !Array.isArray(item.product.stores)) {
+          return true; // Not assigned to any store
+        }
+        return !item.product.stores.some(sId => String(sId) === String(storeId));
+      });
+
+      if (unassignedItems.length > 0) {
+        const unassignedNames = unassignedItems.map(item => item.product?.name).join(", ");
+        return res.status(400).json({
+          success: false,
+          isStoreMismatch: true,
+          message: `The following products are not available at the selected store: ${unassignedNames}. Please remove them to proceed.`
+        });
+      }
+    }
+
     const {
       fullName,
       mobile,
