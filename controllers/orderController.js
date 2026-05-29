@@ -350,7 +350,7 @@ export const checkoutFromStore = async (req, res) => {
     });
   }
 };
-
+  
 // --------------------------------------
 // POST /api/orders/checkout-with-store-selection
 // Checkout from cart with store selection for mixed cart items
@@ -412,6 +412,23 @@ export const checkoutWithStoreSelection = async (req, res) => {
       return res.status(400).json({ 
         success: false,
         message: "No valid items in cart for checkout." 
+      });
+    }
+
+    // Check if all products in the cart are assigned to the selected store
+    const unassignedItems = itemsToCheckout.filter(item => {
+      if (!item.product.stores || !Array.isArray(item.product.stores)) {
+        return true; // Not assigned to any store
+      }
+      return !item.product.stores.some(storeId => String(storeId) === String(selectedStoreId));
+    });
+
+    if (unassignedItems.length > 0) {
+      const unassignedNames = unassignedItems.map(item => item.product.name).join(", ");
+      return res.status(400).json({
+        success: false,
+        isStoreMismatch: true,
+        message: `The following products are not available at the selected store: ${unassignedNames}. Please remove them to proceed.`
       });
     }
 
