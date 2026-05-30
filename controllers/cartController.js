@@ -132,7 +132,8 @@ export const getCartByStore = async (req, res) => {
     const storeItems = cart.items.filter(item => 
       item.product && item.store && 
       String(item.store._id) === storeId &&
-      String(item.product.store) === storeId
+      item.product.stores && 
+      item.product.stores.some(sId => String(sId) === storeId)
     );
 
     return res.json({
@@ -182,25 +183,32 @@ export const addToCart = async (req, res) => {
     // ✅ Smart store handling logic
     let finalStoreId = storeId || null;
     
-    if (product.store) {
-      // Product already assigned to a store
+    if (product.stores && product.stores.length > 0) {
+      // Product assigned to one or more stores
       if (storeId) {
-        // If storeId provided, check if it matches
-        if (String(product.store) !== String(storeId)) {
+        // If storeId provided, check if it matches any of the product's stores
+        if (!product.stores.some(sId => String(sId) === String(storeId))) {
           return res.status(400).json({ 
-            message: "Product belongs to a different store.",
-            productStore: product.store,
+            message: "Product does not belong to the requested store.",
             requestedStore: storeId
           });
         }
         // If matches, use the provided storeId
         finalStoreId = storeId;
       } else {
-        // No storeId provided, use product's store
-        finalStoreId = product.store;
+        // No storeId provided. If it belongs to only one store, we could assign it.
+        // But since it can belong to multiple, it's safer to require the storeId or just leave it null (global).
+        // Let's assume we require the user to pick a store if they add a store-specific product.
+        if (product.stores.length === 1) {
+          finalStoreId = product.stores[0];
+        } else {
+          return res.status(400).json({ 
+            message: "Product belongs to multiple stores. Please specify storeId."
+          });
+        }
       }
     } else {
-      // Global product (store = null)
+      // Global product (stores is empty)
       if (storeId) {
         return res.status(400).json({ 
           message: "This is a global product, cannot assign to store."
@@ -542,7 +550,8 @@ export const checkoutFromStoreCart = async (req, res) => {
     const storeItems = cart.items.filter(item => 
       item.product && item.store && 
       String(item.store._id) === storeId &&
-      String(item.product.store) === storeId
+      item.product.stores &&
+      item.product.stores.some(sId => String(sId) === String(storeId))
     );
 
     if (storeItems.length === 0) {
