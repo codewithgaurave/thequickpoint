@@ -202,9 +202,7 @@ export const addToCart = async (req, res) => {
         if (product.stores.length === 1) {
           finalStoreId = product.stores[0];
         } else {
-          return res.status(400).json({ 
-            message: "Product belongs to multiple stores. Please specify storeId."
-          });
+          finalStoreId = null;
         }
       }
     } else {
