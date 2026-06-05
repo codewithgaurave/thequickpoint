@@ -86,6 +86,12 @@ const orderSchema = new Schema(
     orderNumber: { type: String, unique: true, required: true },
     collectionOTP: { type: String, required: true },
 
+    deliveryBoy: {
+      type: Schema.Types.ObjectId,
+      ref: "DeliveryBoy",
+      default: null,
+    },
+
     isDeleted: { type: Boolean, default: false },
 
     createdAtIST: { type: String },

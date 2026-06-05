@@ -68,6 +68,11 @@ const deliveryBoySchema = new Schema(
       default: false,
     },
 
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
+
     createdAtIST: { type: String },
     updatedAtIST: { type: String },
   },

@@ -14,8 +14,13 @@ import {
   adminGetOrderById,
   adminUpdateOrderStatus,
   adminDeleteOrder,
+  adminAssignOrderDelivery,
+  driverListAssignedOrders,
+  driverListDeliveryHistory,
+  driverPickUpOrder,
+  driverVerifyOtpAndDeliver,
 } from "../controllers/orderController.js";
-import { requireAdminAuth } from "../middleware/auth.js";
+import { requireAdminAuth, requireDeliveryBoyAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -32,10 +37,17 @@ router.get("/my/global", getMyGlobalOrders);            // GET /api/orders/my/gl
 router.get("/my/store/:storeId", getMyStoreOrders);     // GET /api/orders/my/store/:storeId?userId=...
 router.get("/my/:id", getMyOrderById);                  // GET /api/orders/my/:id?userId=...
 
+// ✅ Driver delivery routes (Declared before parameterized admin routes to prevent conflicts)
+router.get("/delivery/assigned", requireDeliveryBoyAuth, driverListAssignedOrders);
+router.get("/delivery/history", requireDeliveryBoyAuth, driverListDeliveryHistory);
+router.patch("/delivery/:id/pick-up", requireDeliveryBoyAuth, driverPickUpOrder);
+router.post("/delivery/:id/verify-otp-deliver", requireDeliveryBoyAuth, driverVerifyOtpAndDeliver);
+
 // ✅ Admin order routes (admin token-based)
 router.get("/", requireAdminAuth, adminListOrders);      // GET /api/orders
 router.get("/global", requireAdminAuth, adminGlobalOrders); // GET /api/orders/global
 router.get("/store/:storeId", requireAdminAuth, adminStoreOrders); // GET /api/orders/store/:storeId
+router.patch("/:id/assign-delivery", requireAdminAuth, adminAssignOrderDelivery); // PATCH /api/orders/:id/assign-delivery
 router.get("/:id", requireAdminAuth, adminGetOrderById); // GET /api/orders/:id
 router.patch("/:id/status", requireAdminAuth, adminUpdateOrderStatus); // PATCH /api/orders/:id/status
 router.delete("/:id", requireAdminAuth, adminDeleteOrder); // DELETE /api/orders/:id

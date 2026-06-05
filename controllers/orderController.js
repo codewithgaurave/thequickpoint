@@ -2,6 +2,7 @@ import Cart from "../models/Cart.js";
 import Order from "../models/Order.js";
 import Store from "../models/Store.js";
 import Payment from "../models/Payment.js";
+import DeliveryBoy from "../models/deliveryBoyModel.js";
 import mongoose from "mongoose";
 import { sendOrderConfirmationSMS, generateCollectionOTP, generateOrderNumber } from "../services/smsService.js";
 
@@ -1103,6 +1104,226 @@ export const adminDeleteOrder = async (req, res) => {
       success: false,
       message: "Server error",
       error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
+  }
+};
+
+// --------------------------------------
+// ADMIN: PATCH /api/orders/:id/assign-delivery
+// --------------------------------------
+export const adminAssignOrderDelivery = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { deliveryBoyId } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Order ID is required." });
+    }
+
+    if (!deliveryBoyId) {
+      return res.status(400).json({ success: false, message: "Delivery Boy ID is required." });
+    }
+
+    const order = await Order.findOne({ _id: id, isDeleted: false });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    const boy = await DeliveryBoy.findOne({ _id: deliveryBoyId, isDeleted: false });
+    if (!boy) {
+      return res.status(404).json({ success: false, message: "Delivery Boy not found" });
+    }
+
+    if (!boy.isActive) {
+      return res.status(400).json({ success: false, message: "Delivery Boy is inactive" });
+    }
+
+    order.deliveryBoy = deliveryBoyId;
+    
+    // Auto confirm order if it was pending
+    if (order.status === "pending") {
+      order.status = "confirmed";
+    }
+
+    await order.save();
+
+    const populatedOrder = await Order.findById(order._id)
+      .populate("user", "mobile email fullName")
+      .populate("store", "storeName managerName managerPhone location")
+      .populate("deliveryBoy", "name phone profileImageUrl")
+      .populate("items.product", "name images unit")
+      .lean();
+
+    return res.json({
+      success: true,
+      message: "Delivery boy assigned successfully",
+      order: populatedOrder,
+    });
+  } catch (err) {
+    console.error("adminAssignOrderDelivery error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
+  }
+};
+
+// --------------------------------------
+// DRIVER: GET /api/orders/delivery/assigned
+// --------------------------------------
+export const driverListAssignedOrders = async (req, res) => {
+  try {
+    const driverId = req.user.dbId;
+
+    const orders = await Order.find({
+      deliveryBoy: driverId,
+      status: { $in: ["confirmed", "shipped"] },
+      isDeleted: false,
+    })
+      .sort({ createdAt: -1 })
+      .populate("user", "mobile email fullName")
+      .populate("store", "storeName managerName managerPhone location storeImageUrl")
+      .populate("items.product", "name images unit")
+      .lean();
+
+    return res.json({
+      success: true,
+      count: orders.length,
+      orders,
+    });
+  } catch (err) {
+    console.error("driverListAssignedOrders error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+// --------------------------------------
+// DRIVER: GET /api/orders/delivery/history
+// --------------------------------------
+export const driverListDeliveryHistory = async (req, res) => {
+  try {
+    const driverId = req.user.dbId;
+
+    const orders = await Order.find({
+      deliveryBoy: driverId,
+      status: "delivered",
+      isDeleted: false,
+    })
+      .sort({ updatedAt: -1 })
+      .populate("user", "mobile email fullName")
+      .populate("store", "storeName managerName managerPhone location storeImageUrl")
+      .populate("items.product", "name images unit")
+      .lean();
+
+    return res.json({
+      success: true,
+      count: orders.length,
+      orders,
+    });
+  } catch (err) {
+    console.error("driverListDeliveryHistory error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+// --------------------------------------
+// DRIVER: PATCH /api/orders/delivery/:id/pick-up
+// --------------------------------------
+export const driverPickUpOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const driverId = req.user.dbId;
+
+    const order = await Order.findOne({
+      _id: id,
+      deliveryBoy: driverId,
+      isDeleted: false,
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    if (order.status !== "confirmed") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot pick up order in '${order.status}' status. Must be 'confirmed'.`,
+      });
+    }
+
+    order.status = "shipped"; // Shipped corresponds to out for delivery / picked up
+    await order.save();
+
+    return res.json({
+      success: true,
+      message: "Order picked up successfully. Status changed to shipped.",
+      order,
+    });
+  } catch (err) {
+    console.error("driverPickUpOrder error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+// --------------------------------------
+// DRIVER: POST /api/orders/delivery/:id/verify-otp-deliver
+// --------------------------------------
+export const driverVerifyOtpAndDeliver = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { otp } = req.body;
+    const driverId = req.user.dbId;
+
+    if (!otp) {
+      return res.status(400).json({ success: false, message: "OTP is required to deliver." });
+    }
+
+    const order = await Order.findOne({
+      _id: id,
+      deliveryBoy: driverId,
+      isDeleted: false,
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    if (order.status === "delivered") {
+      return res.status(400).json({ success: false, message: "Order is already delivered." });
+    }
+
+    // Verify OTP (allow universal test OTP 123456 in dev/test environment)
+    const isTestOtp = (process.env.NODE_ENV === "development" || process.env.SHOW_OTP === "true") && otp === "123456";
+    const isMatched = order.collectionOTP === otp || isTestOtp;
+
+    if (!isMatched) {
+      return res.status(400).json({ success: false, message: "Invalid OTP. Please verify with the customer." });
+    }
+
+    order.status = "delivered";
+    order.paymentStatus = "paid"; // Delivery boy collects payment or confirms prepaid delivery
+    await order.save();
+
+    return res.json({
+      success: true,
+      message: "Order delivered successfully! Payment confirmed.",
+      order,
+    });
+  } catch (err) {
+    console.error("driverVerifyOtpAndDeliver error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
     });
   }
 };

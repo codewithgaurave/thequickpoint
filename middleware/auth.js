@@ -2,6 +2,7 @@
 import jwt from "jsonwebtoken";
 import Admin from "../models/Admin.js";
 import User from "../models/User.js";
+import DeliveryBoy from "../models/deliveryBoyModel.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -119,6 +120,48 @@ export const requireStoreManagerAuth = (req, res, next) => {
 
     next();
   } catch (err) {
+    return res.status(401).json({ message: "Invalid or expired token" });
+  }
+};
+
+// -----------------------------
+// DELIVERY BOY AUTH
+// -----------------------------
+export const requireDeliveryBoyAuth = async (req, res, next) => {
+  try {
+    const token = extractToken(req);
+    if (!token) return res.status(401).json({ message: "Missing auth token" });
+
+    const payload = jwt.verify(token, JWT_SECRET);
+
+    if (payload.role !== "deliveryBoy") {
+      return res.status(403).json({ message: "Delivery Boy access only." });
+    }
+
+    const boy = await DeliveryBoy.findById(payload.sub);
+    if (!boy || boy.isDeleted) {
+      return res.status(401).json({ message: "Delivery Boy not found" });
+    }
+
+    if (!boy.isActive) {
+      return res.status(403).json({ message: "Delivery Boy is inactive." });
+    }
+
+    if (boy.tokenVersion !== payload.tv) {
+      return res
+        .status(401)
+        .json({ message: "Session expired. Please login again." });
+    }
+
+    req.user = {
+      ...payload,
+      dbId: boy._id.toString(),
+      type: "deliveryBoy",
+    };
+
+    next();
+  } catch (err) {
+    console.error("Delivery boy auth error:", err);
     return res.status(401).json({ message: "Invalid or expired token" });
   }
 };
