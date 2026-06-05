@@ -872,6 +872,7 @@ export const adminListOrders = async (_req, res) => {
       .sort({ createdAt: -1 })
       .populate("user", "mobile email fullName")
       .populate("store", "storeName managerName")
+      .populate("deliveryBoy", "name phone profileImageUrl isActive")
       .lean();
 
     // Separate orders
@@ -913,6 +914,7 @@ export const adminGlobalOrders = async (_req, res) => {
     })
       .sort({ createdAt: -1 })
       .populate("user", "mobile email fullName")
+      .populate("deliveryBoy", "name phone profileImageUrl isActive")
       .lean();
 
     return res.json({ 
@@ -951,6 +953,7 @@ export const adminStoreOrders = async (req, res) => {
       .sort({ createdAt: -1 })
       .populate("user", "mobile email fullName")
       .populate("store", "storeName managerName")
+      .populate("deliveryBoy", "name phone profileImageUrl isActive")
       .lean();
 
     return res.json({ 
@@ -986,6 +989,7 @@ export const adminGetOrderById = async (req, res) => {
       .populate("user", "mobile email fullName")
       .populate("store", "storeName managerName managerPhone location")
       .populate("items.product", "name images unit store")
+      .populate("deliveryBoy", "name phone profileImageUrl isActive")
       .lean();
 
     if (!order) {
