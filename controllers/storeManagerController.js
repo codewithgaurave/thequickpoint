@@ -1,6 +1,8 @@
 // controllers/storeManagerController.js
 import jwt from "jsonwebtoken";
 import Store from "../models/Store.js";
+import Order from "../models/Order.js";
+import DeliveryBoy from "../models/deliveryBoyModel.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const MANAGER_JWT_EXPIRES_IN =
@@ -245,5 +247,133 @@ export const updateMyStoreManagerProfile = async (req, res) => {
         .json({ message: "managerPhone already in use for another store." });
     }
     return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// --------------------------------------
+// GET /api/store-managers/orders
+// --------------------------------------
+export const getStoreManagerOrders = async (req, res) => {
+  try {
+    const storeId = req.storeManager?.id;
+
+    if (!storeId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const { status } = req.query;
+    const filter = {
+      store: storeId,
+      isDeleted: false,
+    };
+
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+
+    const orders = await Order.find(filter)
+      .populate("user", "mobile email fullName")
+      .populate("items.product", "name images unit")
+      .populate("deliveryBoy", "name phone profileImageUrl isActive")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      count: orders.length,
+      orders,
+    });
+  } catch (err) {
+    console.error("getStoreManagerOrders error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// --------------------------------------
+// GET /api/store-managers/delivery-boys
+// --------------------------------------
+export const getAvailableDeliveryBoys = async (req, res) => {
+  try {
+    const storeId = req.storeManager?.id;
+
+    if (!storeId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const deliveryBoys = await DeliveryBoy.find({
+      isActive: true,
+      isDeleted: false,
+    })
+      .select("name phone profileImageUrl vehicleType isActive")
+      .lean();
+
+    return res.json({
+      success: true,
+      count: deliveryBoys.length,
+      deliveryBoys,
+    });
+  } catch (err) {
+    console.error("getAvailableDeliveryBoys error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// --------------------------------------
+// PATCH /api/store-managers/orders/:id/assign-delivery
+// --------------------------------------
+export const assignOrderToDeliveryBoy = async (req, res) => {
+  try {
+    const storeId = req.storeManager?.id;
+    const { id: orderId } = req.params;
+    const { deliveryBoyId } = req.body;
+
+    if (!storeId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: "Order ID is required." });
+    }
+
+    if (!deliveryBoyId) {
+      return res.status(400).json({ success: false, message: "Delivery Boy ID is required." });
+    }
+
+    const order = await Order.findOne({ _id: orderId, store: storeId, isDeleted: false });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found for your store." });
+    }
+
+    const boy = await DeliveryBoy.findOne({ _id: deliveryBoyId, isDeleted: false });
+    if (!boy) {
+      return res.status(404).json({ success: false, message: "Delivery Boy not found" });
+    }
+
+    if (!boy.isActive) {
+      return res.status(400).json({ success: false, message: "Delivery Boy is inactive" });
+    }
+
+    order.deliveryBoy = deliveryBoyId;
+
+    if (order.status === "pending") {
+      order.status = "confirmed";
+    }
+
+    await order.save();
+
+    const populatedOrder = await Order.findById(order._id)
+      .populate("user", "mobile email fullName")
+      .populate("deliveryBoy", "name phone profileImageUrl isActive")
+      .populate("items.product", "name images unit")
+      .lean();
+
+    return res.json({
+      success: true,
+      message: "Delivery boy assigned successfully",
+      order: populatedOrder,
+    });
+  } catch (err) {
+    console.error("assignOrderToDeliveryBoy error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };
