@@ -1,226 +1,184 @@
-// config/cloudinary.js
-import { v2 as cloudinary } from "cloudinary";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
+// config/cloudinary.js - Replaced with Local File Storage
 import multer from "multer";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-// Cloudinary env check
-if (
-  !process.env.CLOUDINARY_CLOUD_NAME ||
-  !process.env.CLOUDINARY_API_KEY ||
-  !process.env.CLOUDINARY_API_SECRET
-) {
-  console.error("❌ Cloudinary environment variables are missing!");
-}
-
-// Cloudinary config
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import path from "path";
+import fs from "fs";
 
 // Common image mime types
 const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
+// Create local storage configuration
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    let folder = "uploads/";
+    
+    // Dynamically categorize uploads into folders matching the old Cloudinary structure
+    if (file.fieldname === "profilePhoto") {
+      folder += "society_users/";
+    } else if (file.fieldname === "sliderImage") {
+      folder += "society_sliders/";
+    } else if (file.fieldname === "offerImage") {
+      folder += "society_offers/";
+    } else if (file.fieldname === "categoryImage") {
+      folder += "society_categories/";
+    } else if (file.fieldname === "productImages") {
+      folder += "society_products/";
+    } else if (file.fieldname === "storeImage") {
+      folder += "society_stores/";
+    } else if (file.fieldname === "profileImage" || file.fieldname === "document") {
+      folder += "delivery_boys/";
+    }
+
+    // Ensure the folder exists
+    fs.mkdirSync(folder, { recursive: true });
+    cb(null, folder);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, file.fieldname + "-" + uniqueSuffix + ext);
+  }
+});
+
+// Helper function to wrap multer middlewares and convert local path to full URL
+const makeLocalUploadMiddleware = (multerMiddleware) => {
+  return (req, res, next) => {
+    multerMiddleware(req, res, (err) => {
+      if (err) return next(err);
+      
+      const formatUrl = (filePath) => {
+        // Normalize backslashes (for Windows compatibility) to forward slashes
+        const cleanPath = filePath.replace(/\\/g, "/");
+        // Build the full public URL dynamically
+        const protocol = req.protocol;
+        const host = req.get("host");
+        return `${protocol}://${host}/${cleanPath}`;
+      };
+
+      if (req.file) {
+        req.file.path = formatUrl(req.file.path);
+      }
+      
+      if (req.files) {
+        if (Array.isArray(req.files)) {
+          req.files.forEach(file => {
+            file.path = formatUrl(file.path);
+          });
+        } else {
+          for (let fieldName in req.files) {
+            req.files[fieldName].forEach(file => {
+              file.path = formatUrl(file.path);
+            });
+          }
+        }
+      }
+      
+      next();
+    });
+  };
+};
+
 // -----------------------------------------------------
 // USER PROFILE PHOTO UPLOAD
 // -----------------------------------------------------
-const userStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "society_users",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    resource_type: "image",
-  },
-});
-
-const uploadUserFiles = multer({
-  storage: userStorage,
+const userMulter = multer({
+  storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     if (ALLOWED_IMAGE_MIME.includes(file.mimetype)) return cb(null, true);
-    return cb(
-      new Error(
-        "Invalid file type. Only image files are allowed for profile photo."
-      ),
-      false
-    );
+    cb(new Error("Invalid file type. Only image files are allowed for profile photo."), false);
   },
 });
-
-// single: profilePhoto
-const uploadUserFields = uploadUserFiles.single("profilePhoto");
+const uploadUserFields = makeLocalUploadMiddleware(userMulter.single("profilePhoto"));
 
 // -----------------------------------------------------
 // SLIDER IMAGE UPLOAD
 // -----------------------------------------------------
-const sliderStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "society_sliders",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    resource_type: "image",
-  },
-});
-
 const sliderMulter = multer({
-  storage: sliderStorage,
+  storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     if (ALLOWED_IMAGE_MIME.includes(file.mimetype)) return cb(null, true);
-    return cb(
-      new Error(
-        "Invalid file type. Only JPG, PNG, WEBP allowed for slider images."
-      ),
-      false
-    );
+    cb(new Error("Invalid file type. Only JPG, PNG, WEBP allowed for slider images."), false);
   },
 });
-
-// single: sliderImage
-const uploadSliderImage = sliderMulter.single("sliderImage");
+const uploadSliderImage = makeLocalUploadMiddleware(sliderMulter.single("sliderImage"));
 
 // -----------------------------------------------------
 // OFFER IMAGE UPLOAD
 // -----------------------------------------------------
-const offerImageStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "society_offers",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    resource_type: "image",
-  },
-});
-
 const offerImageMulter = multer({
-  storage: offerImageStorage,
+  storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (ALLOWED_IMAGE_MIME.includes(file.mimetype)) return cb(null, true);
-    return cb(
-      new Error(
-        "Invalid file type. Only JPG, PNG, WEBP allowed for offer images."
-      ),
-      false
-    );
+    cb(new Error("Invalid file type. Only JPG, PNG, WEBP allowed for offer images."), false);
   },
 });
-
-// single: offerImage
-const uploadOfferImage = offerImageMulter.single("offerImage");
+const uploadOfferImage = makeLocalUploadMiddleware(offerImageMulter.single("offerImage"));
 
 // -----------------------------------------------------
 // CATEGORY IMAGE UPLOAD
 // -----------------------------------------------------
-const categoryImageStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "society_categories",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    resource_type: "image",
-  },
-});
-
 const categoryImageMulter = multer({
-  storage: categoryImageStorage,
+  storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (ALLOWED_IMAGE_MIME.includes(file.mimetype)) return cb(null, true);
-    return cb(
-      new Error(
-        "Invalid file type. Only JPG, PNG, WEBP allowed for category images."
-      ),
-      false
-    );
+    cb(new Error("Invalid file type. Only JPG, PNG, WEBP allowed for category images."), false);
   },
 });
-
-// single: categoryImage
-const uploadCategoryImage = categoryImageMulter.single("categoryImage");
+const uploadCategoryImage = makeLocalUploadMiddleware(categoryImageMulter.single("categoryImage"));
 
 // -----------------------------------------------------
 // PRODUCT IMAGES UPLOAD (up to 3 images per product)
 // -----------------------------------------------------
-const productImageStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "society_products",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    resource_type: "image",
-  },
-});
-
 const productImageMulter = multer({
-  storage: productImageStorage,
+  storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // per image
   fileFilter: (req, file, cb) => {
     if (ALLOWED_IMAGE_MIME.includes(file.mimetype)) return cb(null, true);
-    return cb(
-      new Error(
-        "Invalid file type. Only JPG, PNG, WEBP allowed for product images."
-      ),
-      false
-    );
+    cb(new Error("Invalid file type. Only JPG, PNG, WEBP allowed for product images."), false);
   },
 });
-
-// array: productImages (max 3)
-const uploadProductImages = productImageMulter.array("productImages", 3);
+const uploadProductImages = makeLocalUploadMiddleware(productImageMulter.array("productImages", 3));
 
 // -----------------------------------------------------
 // STORE IMAGE UPLOAD
 // -----------------------------------------------------
-const storeImageStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "society_stores",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    resource_type: "image",
-  },
-});
-
 const storeImageMulter = multer({
-  storage: storeImageStorage,
+  storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (ALLOWED_IMAGE_MIME.includes(file.mimetype)) return cb(null, true);
-    return cb(
-      new Error(
-        "Invalid file type. Only JPG, PNG, WEBP allowed for store images."
-      ),
-      false
-    );
+    cb(new Error("Invalid file type. Only JPG, PNG, WEBP allowed for store images."), false);
   },
 });
+const uploadStoreImage = makeLocalUploadMiddleware(storeImageMulter.single("storeImage"));
 
-// single: storeImage
-const uploadStoreImage = storeImageMulter.single("storeImage");
-
+// -----------------------------------------------------
 // DELIVERY BOY — PROFILE + DOCUMENT
-const deliveryBoyStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "delivery_boys",
-    allowed_formats: ["jpg", "jpeg", "png", "webp", "pdf"],
+// -----------------------------------------------------
+const deliveryBoyMulter = multer({
+  storage: storage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = [...ALLOWED_IMAGE_MIME, "application/pdf"];
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    cb(new Error("Only images and PDF documents are allowed!"), false);
   },
 });
-
-const uploadDeliveryBoyFiles = multer({
-  storage: deliveryBoyStorage,
-  limits: { fileSize: 15 * 1024 * 1024 },
-});
-
-export const uploadDeliveryBoy = uploadDeliveryBoyFiles.fields([
+const uploadDeliveryBoy = makeLocalUploadMiddleware(deliveryBoyMulter.fields([
   { name: "profileImage", maxCount: 1 },
   { name: "document", maxCount: 1 },
-]);
+]));
 
-// -----------------------------------------------------
-// EXPORTS
-// -----------------------------------------------------
+// Placeholder cloudinary object for compatibility
+const cloudinary = {
+  v2: {},
+  uploader: {}
+};
+
+// Exports
 export {
   cloudinary,
   uploadUserFields,
@@ -229,4 +187,5 @@ export {
   uploadCategoryImage,
   uploadProductImages,
   uploadStoreImage,
+  uploadDeliveryBoy
 };
