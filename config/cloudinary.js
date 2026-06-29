@@ -2,6 +2,13 @@
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// The uploads directory should be absolute and inside thequichpointApi/uploads/
+const UPLOADS_BASE_PATH = path.join(__dirname, "..", "uploads");
 
 // Common image mime types
 const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
@@ -9,28 +16,32 @@ const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/jpg", "image/png", "image/webp"
 // Create local storage configuration
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    let folder = "uploads/";
-    
-    // Dynamically categorize uploads into folders matching the old Cloudinary structure
-    if (file.fieldname === "profilePhoto") {
-      folder += "society_users/";
-    } else if (file.fieldname === "sliderImage") {
-      folder += "society_sliders/";
-    } else if (file.fieldname === "offerImage") {
-      folder += "society_offers/";
-    } else if (file.fieldname === "categoryImage") {
-      folder += "society_categories/";
-    } else if (file.fieldname === "productImages") {
-      folder += "society_products/";
-    } else if (file.fieldname === "storeImage") {
-      folder += "society_stores/";
-    } else if (file.fieldname === "profileImage" || file.fieldname === "document") {
-      folder += "delivery_boys/";
-    }
+    try {
+      let folder = UPLOADS_BASE_PATH;
+      
+      // Dynamically categorize uploads into folders matching the old Cloudinary structure
+      if (file.fieldname === "profilePhoto") {
+        folder = path.join(folder, "society_users");
+      } else if (file.fieldname === "sliderImage") {
+        folder = path.join(folder, "society_sliders");
+      } else if (file.fieldname === "offerImage") {
+        folder = path.join(folder, "society_offers");
+      } else if (file.fieldname === "categoryImage") {
+        folder = path.join(folder, "society_categories");
+      } else if (file.fieldname === "productImages") {
+        folder = path.join(folder, "society_products");
+      } else if (file.fieldname === "storeImage") {
+        folder = path.join(folder, "society_stores");
+      } else if (file.fieldname === "profileImage" || file.fieldname === "document") {
+        folder = path.join(folder, "delivery_boys");
+      }
 
-    // Ensure the folder exists
-    fs.mkdirSync(folder, { recursive: true });
-    cb(null, folder);
+      // Ensure the folder exists
+      fs.mkdirSync(folder, { recursive: true });
+      cb(null, folder);
+    } catch (err) {
+      cb(err);
+    }
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
@@ -43,36 +54,56 @@ const storage = multer.diskStorage({
 const makeLocalUploadMiddleware = (multerMiddleware) => {
   return (req, res, next) => {
     multerMiddleware(req, res, (err) => {
-      if (err) return next(err);
-      
-      const formatUrl = (filePath) => {
-        // Normalize backslashes (for Windows compatibility) to forward slashes
-        const cleanPath = filePath.replace(/\\/g, "/");
-        // Build the full public URL dynamically
-        const protocol = req.protocol;
-        const host = req.get("host");
-        return `${protocol}://${host}/${cleanPath}`;
-      };
-
-      if (req.file) {
-        req.file.path = formatUrl(req.file.path);
+      if (err) {
+        console.error("❌ Multer upload error:", err);
+        return res.status(500).json({
+          message: "Multer file upload failed",
+          error: err.message,
+          stack: err.stack
+        });
       }
       
-      if (req.files) {
-        if (Array.isArray(req.files)) {
-          req.files.forEach(file => {
-            file.path = formatUrl(file.path);
-          });
-        } else {
-          for (let fieldName in req.files) {
-            req.files[fieldName].forEach(file => {
+      try {
+        const formatUrl = (filePath) => {
+          // Get the path relative to the thequichpointApi root directory (parent of config)
+          const apiRootDir = path.join(UPLOADS_BASE_PATH, "..");
+          const relativePath = path.relative(apiRootDir, filePath);
+          
+          // Normalize backslashes (for Windows compatibility) to forward slashes
+          const cleanPath = relativePath.replace(/\\/g, "/");
+          // Build the full public URL dynamically
+          const protocol = req.protocol;
+          const host = req.get("host");
+          return `${protocol}://${host}/${cleanPath}`;
+        };
+
+        if (req.file) {
+          req.file.path = formatUrl(req.file.path);
+        }
+        
+        if (req.files) {
+          if (Array.isArray(req.files)) {
+            req.files.forEach(file => {
               file.path = formatUrl(file.path);
             });
+          } else {
+            for (let fieldName in req.files) {
+              req.files[fieldName].forEach(file => {
+                file.path = formatUrl(file.path);
+              });
+            }
           }
         }
+        
+        next();
+      } catch (innerErr) {
+        console.error("❌ Error in makeLocalUploadMiddleware formatting:", innerErr);
+        return res.status(500).json({
+          message: "File URL formatting failed",
+          error: innerErr.message,
+          stack: innerErr.stack
+        });
       }
-      
-      next();
     });
   };
 };
